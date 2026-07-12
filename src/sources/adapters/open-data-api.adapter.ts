@@ -1,0 +1,119 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { Source, SourceType, FetchMethod } from '@prisma/client';
+import { SourceAdapter } from '../interfaces/source-adapter.interface';
+import { FetchResult, RawCandidate } from '../interfaces/raw-candidate.interface';
+import { computeContentHash } from '../../common/content-hash.util';
+import { HttpFetcherFactory } from '../fetchers/http-fetcher.factory';
+
+/// Config esperada en Source.config para type=OPEN_DATA_API (Socrata /
+/// datos.gov.co). Confirmado en vivo contra
+/// https://www.datos.gov.co/resource/fhc4-jjti.json (SIVIGILA - INS):
+/// campos reales = cod_eve, nombre_evento, semana, ano,
+/// municipio_ocurrencia, departamento_ocurrencia, conteo.
+/// No existe un campo de fecha unico en este dataset (es semana
+/// epidemiologica + ano), por eso no se usa cursor por fecha: se re-pide
+/// una ventana reciente en cada corrida y se deja que el @@unique de
+/// Prisma sobre (sourceId, originalContentHash) deduplique, igual que en
+/// RssAdapter. Si el cliente confirma que se deben ingerir anios/recursos
+/// adicionales (ver pregunta abierta #11 del plan), agregar cada resource
+/// id de Socrata como una entrada nueva en apiUrls.
+interface OpenDataApiSourceConfig {
+  apiUrls: string[];
+  order: string; // p.ej. "ano DESC, semana DESC"
+  limit?: number;
+  datasetLandingUrl: string; // pagina publica del dataset, para trazabilidad legible
+}
+
+interface SivigilaRow {
+  cod_eve: string;
+  nombre_evento: string;
+  semana: string;
+  ano: string;
+  municipio_ocurrencia: string;
+  departamento_ocurrencia: string;
+  conteo: string;
+}
+
+@Injectable()
+export class OpenDataApiAdapter implements SourceAdapter {
+  readonly type = SourceType.OPEN_DATA_API;
+  private readonly logger = new Logger(OpenDataApiAdapter.name);
+
+  constructor(private readonly fetcherFactory: HttpFetcherFactory) {}
+
+  async fetchCandidates(source: Source, _cursor: unknown | null): Promise<FetchResult> {
+    const config = source.config as unknown as OpenDataApiSourceConfig;
+    if (!config?.apiUrls?.length) {
+      throw new Error(`Source ${source.institutionCode}: config.apiUrls vacio o ausente`);
+    }
+
+    const fetcher = this.fetcherFactory.get(source.fetchMethod ?? FetchMethod.HTTP_SIMPLE);
+    const items: RawCandidate[] = [];
+    const errors: string[] = [];
+    const limit = config.limit ?? 200;
+
+    for (const apiUrl of config.apiUrls) {
+      try {
+        const url = `${apiUrl}?$order=${encodeURIComponent(config.order)}&$limit=${limit}`;
+        const body = await fetcher.fetchText(url);
+        const rows = JSON.parse(body) as SivigilaRow[];
+
+        for (const row of rows) {
+          if (!row.nombre_evento || !row.ano || !row.semana) continue;
+
+          // Texto factual derivado 1:1 de los campos oficiales del dataset --
+          // no se agrega ninguna interpretacion aqui, solo transcripcion.
+          const rawText =
+            `El municipio de ${row.municipio_ocurrencia} (${row.departamento_ocurrencia}) ` +
+            `reporto ${row.conteo} caso(s) de "${row.nombre_evento}" en la semana ` +
+            `epidemiologica ${row.semana} del anio ${row.ano}, segun datos SIVIGILA del INS ` +
+            `(codigo de evento ${row.cod_eve}).`;
+          const title = `SIVIGILA: ${row.nombre_evento} - semana ${row.semana}/${row.ano} - ${row.municipio_ocurrencia}`;
+
+          // URL verificable: consulta Socrata acotada exactamente a esta fila
+          // (no una URL inventada) -- cualquiera puede abrirla y ver el dato crudo.
+          const rowUrl =
+            `${apiUrl}?cod_eve=${encodeURIComponent(row.cod_eve)}` +
+            `&ano=${encodeURIComponent(row.ano)}&semana=${encodeURIComponent(row.semana)}` +
+            `&municipio_ocurrencia=${encodeURIComponent(row.municipio_ocurrencia)}`;
+
+          items.push({
+            externalId: `${row.cod_eve}-${row.ano}-${row.semana}-${row.municipio_ocurrencia}`,
+            url: rowUrl,
+            title,
+            excerpt: null,
+            publishedAt: epidemiologicalWeekToDate(row.ano, row.semana),
+            rawText,
+            contentHash: computeContentHash(title, rawText),
+            imageUrl: null, // SIVIGILA es un dataset tabular, no expone imagenes
+          });
+        }
+      } catch (err) {
+        const message = `${apiUrl}: ${(err as Error).message}`;
+        this.logger.error(`Fallo al leer dataset abierto (fuente ${source.institutionCode}): ${message}`);
+        errors.push(message);
+      }
+    }
+
+    if (errors.length === config.apiUrls.length) {
+      throw new Error(`Todos los endpoints de ${source.institutionCode} fallaron: ${errors.join(' | ')}`);
+    }
+
+    return { items, nextCursor: null };
+  }
+}
+
+/// Aproxima el lunes de la semana epidemiologica ISO dada -- se usa solo
+/// para ordenar/mostrar fecha, el dato oficial real es (ano, semana), que
+/// se conserva integro en el texto.
+function epidemiologicalWeekToDate(ano: string, semana: string): Date {
+  const year = parseInt(ano, 10);
+  const week = parseInt(semana, 10);
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const dayOfWeek = jan4.getUTCDay() || 7;
+  const week1Monday = new Date(jan4);
+  week1Monday.setUTCDate(jan4.getUTCDate() - dayOfWeek + 1);
+  const target = new Date(week1Monday);
+  target.setUTCDate(week1Monday.getUTCDate() + (week - 1) * 7);
+  return target;
+}

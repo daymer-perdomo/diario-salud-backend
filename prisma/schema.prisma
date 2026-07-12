@@ -1,0 +1,230 @@
+// EcoFarma - Diario de la Salud
+// Ver /Users/daymer/.claude/plans/precious-hopping-duckling.md para el diseno completo.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  VALIDATOR
+  VIEWER
+}
+
+enum SourceType {
+  RSS
+  HTML_SCRAPE
+  OPEN_DATA_API
+}
+
+enum FetchMethod {
+  HTTP_SIMPLE
+  HEADLESS_BROWSER
+}
+
+enum RiskLevel {
+  BAJO
+  MEDIO
+  ALTO
+}
+
+enum CheckStatus {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+// El orden de los valores importa para el CHECK "draft_requires_clean_checks" en la migracion:
+// todo estado desde BORRADOR en adelante exige grounding y compliance APROBADO.
+enum ArticleState {
+  RECOLECTADO
+  DESCARTADO
+  EVALUADO
+  REESCRITO
+  GROUNDING_FALLIDO
+  CUMPLIMIENTO_FALLIDO
+  BORRADOR
+  EN_VALIDACION
+  VALIDADO
+  RECHAZADO
+  PUBLICADO
+  ERROR
+}
+
+enum ValidationDecision {
+  VALIDADO
+  RECHAZADO
+  EDITADO_Y_VALIDADO
+}
+
+enum ActorType {
+  SYSTEM
+  AI
+  HUMAN
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         UserRole @default(VIEWER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdSources        Source[]  @relation("SourceCreatedBy")
+  updatedSources        Source[]  @relation("SourceUpdatedBy")
+  validatedArticles      Article[] @relation("ArticleValidator")
+  publishedArticles      Article[] @relation("ArticlePublishedBy")
+
+  @@map("users")
+}
+
+/// Catalogo cerrado de fuentes oficiales autorizadas (brief secciones 4 y 4.1-4.2).
+/// Solo un ADMIN puede crear/editar filas aqui - la IA y el resto del pipeline
+/// solo leen via SourceRegistryService. Ningun Article puede existir sin un
+/// sourceId valido que apunte a una fila de esta tabla (whitelist estructural).
+model Source {
+  id                  String      @id @default(uuid())
+  institutionCode     String      @unique
+  name                String
+  type                SourceType
+  baseUrl             String
+  country             String
+  /// Config especifica del adapter: feed URL, selectores de scraping, endpoint de API, etc.
+  config              Json
+  fetchMethod         FetchMethod @default(HTTP_SIMPLE)
+  isActive            Boolean     @default(true)
+  /// Hora del dia (formato "HH:mm", 24h) a la que se dispara la ingesta
+  /// automatica de esta fuente, una vez por dia. null = solo manual (via
+  /// el boton "Consultar ahora" del panel) -- este es el valor por
+  /// defecto tras el incidente de agotamiento de credito del
+  /// 2026-07-12 (ver RssAdapter): ninguna fuente ingiere sola salvo que
+  /// alguien lo configure explicitamente.
+  scheduledTime       String?
+  /// Proxima ejecucion programada -- solo tiene sentido cuando
+  /// scheduledTime no es null; se recalcula en SourcesService cada vez
+  /// que scheduledTime cambia, y IngestionDispatcher la avanza +24h tras
+  /// disparar.
+  nextRunAt           DateTime?
+  lastSuccessfulCursor Json?
+  consecutiveFailures Int         @default(0)
+
+  createdByUserId String?
+  createdBy       User?   @relation("SourceCreatedBy", fields: [createdByUserId], references: [id])
+  updatedByUserId String?
+  updatedBy       User?   @relation("SourceUpdatedBy", fields: [updatedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  articles Article[]
+
+  @@map("sources")
+}
+
+/// Tabla central de procesamiento (brief seccion 9). Los campos de procedencia
+/// son NOT NULL desde la creacion de la fila: ningun articulo existe sin fuente
+/// oficial trazable. Ver migracion 0001 para los CHECK constraints que hacen
+/// las invariantes de publicacion/cumplimiento inviolables a nivel de base de datos.
+model Article {
+  id String @id @default(uuid())
+
+  // --- Procedencia (obligatoria, inmutable, nunca inventada) ---
+  sourceId            String
+  source              Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  externalId          String?
+  sourceUrl           String
+  sourceInstitution   String
+  sourcePublishedAt   DateTime
+  fetchedAt           DateTime @default(now())
+  originalTitle       String
+  originalExcerpt     String?
+  originalContent     String
+  originalContentHash String
+  originalSnapshotUrl String?
+  imageUrl            String?
+  language            String   @default("es")
+
+  // --- Filtrado / puntuacion (IA) ---
+  isRelevant       Boolean?
+  relevanceScore   Float?
+  relevanceReason  String?
+  riskLevel        RiskLevel?
+  riskReason       String?
+
+  // --- Reescritura (IA) ---
+  rewrittenTitle   String?
+  rewrittenSummary String?
+  rewrittenContent String?
+  rewriteModel     String?
+  rewriteAttempts  Int     @default(0)
+
+  // --- Verificacion de fidelidad (anti-invencion) ---
+  groundingStatus CheckStatus?
+  groundingReport Json?
+
+  // --- Cumplimiento normativo ---
+  complianceStatus CheckStatus?
+  complianceReport Json?
+
+  // --- Estado / maquina de estados ---
+  state        ArticleState @default(RECOLECTADO)
+  errorStage   String?
+  lastErrorMessage String?
+
+  // --- Validacion humana (obligatoria antes de publicar) ---
+  validatorId        String?
+  validator           User?               @relation("ArticleValidator", fields: [validatorId], references: [id])
+  validationDecision  ValidationDecision?
+  validationNotes     String?
+  validatedAt          DateTime?
+
+  // --- Publicacion (solo tras validacion) ---
+  wordpressPostId     Int?
+  wordpressTagIds     Json?
+  publishedAt         DateTime?
+  publishedByUserId   String?
+  publishedBy         User?    @relation("ArticlePublishedBy", fields: [publishedByUserId], references: [id])
+
+  // --- Deduplicacion ---
+  isDuplicateOf String?
+  duplicateOf   Article?  @relation("ArticleDuplicates", fields: [isDuplicateOf], references: [id])
+  duplicates    Article[] @relation("ArticleDuplicates")
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sourceId, originalContentHash])
+  @@index([state])
+  @@index([sourcePublishedAt])
+  @@map("articles")
+}
+
+/// Bitacora de auditoria de solo-anexo (append-only). El rol de base de datos
+/// que usa la aplicacion no debe tener privilegios UPDATE/DELETE sobre esta
+/// tabla (configurar a nivel de rol de Postgres, fuera de Prisma).
+model AuditLog {
+  id         String     @id @default(uuid())
+  entityType String
+  entityId   String
+  action     String
+  actorType  ActorType
+  actorId    String?
+  fromState  String?
+  toState    String?
+  payload    Json?
+  createdAt  DateTime   @default(now())
+
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

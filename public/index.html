@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Diario de la Salud — EcoFarma</title>
+  <script defer src="/alpine.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary:        #14532D;
+      --primary-dark:   #052e16;
+      --primary-light:  #F0FDF4;
+      --surface:        #F9FAFB;
+      --border:         #E4E4E7;
+      --muted:          #52525B;
+      --subtle:         #A1A1AA;
+      --orange:         #F97316;   --orange-bg:    #FFF7ED;
+      --green:          #16A34A;   --green-bg:     #F0FDF4;   --green-border: #BBF7D0;
+      --amber:          #D97706;   --amber-bg:     #FFFBEB;   --amber-border: #FDE68A;
+      --red:            #DC2626;   --red-bg:       #FEF2F2;   --red-border:   #FECACA;
+      --blue:           #2563EB;   --blue-bg:      #EFF6FF;
+      --fs-xs:  11px;
+      --fs-sm:  13px;
+      --fs-md:  15px;
+      --fs-lg:  20px;
+      --radius:    8px;
+      --radius-lg: 12px;
+      --shadow:    0 1px 3px rgba(0,0,0,.08);
+      --shadow-md: 0 4px 12px rgba(0,0,0,.10);
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--surface); color: #18181B; font-size: var(--fs-sm); line-height: 1.5; }
+    [x-cloak] { display: none !important; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse-dot {
+      0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(74,222,128,.45); }
+      60%      { opacity:.8; box-shadow: 0 0 0 5px rgba(74,222,128,0); }
+    }
+    @keyframes toast-in { from { transform: translateY(8px); opacity:0; } to { transform: translateY(0); opacity:1; } }
+
+    .app { min-height: 100vh; display: flex; flex-direction: column; }
+    .header { background: var(--primary); color: #fff; height: 56px; display: flex; align-items: center; padding: 0 24px; gap: 16px; flex-shrink: 0; position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 0 rgba(255,255,255,.07), 0 2px 12px rgba(0,0,0,.14); }
+    .header-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: var(--fs-md); letter-spacing: -.01em; }
+    .header-logo svg { width: 18px; height: 18px; opacity: .9; }
+    .header-role { font-size: var(--fs-xs); color: rgba(255,255,255,.5); margin-left: 4px; text-transform: uppercase; letter-spacing: .04em; }
+    .header-spacer { flex: 1; }
+    .header-status { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: rgba(255,255,255,.6); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; flex-shrink: 0; }
+    .dot:not(.err) { animation: pulse-dot 2.8s ease-in-out infinite; }
+    .dot.err { background: #f87171; }
+    .btn-ghost { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.75); padding: 5px 12px; border-radius: var(--radius); cursor: pointer; font-size: var(--fs-xs); font-weight: 500; transition: background .15s; }
+    .btn-ghost:hover { background: rgba(255,255,255,.14); }
+
+    .tabs { background: #fff; border-bottom: 1px solid var(--border); padding: 0 20px; display: flex; align-items: center; gap: 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; min-height: 48px; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { padding: 6px 12px; font-size: var(--fs-xs); font-weight: 500; color: var(--muted); cursor: pointer; border: none; background: none; transition: color .15s, background .15s; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; border-radius: var(--radius); flex-shrink: 0; height: 34px; }
+    .tab svg { opacity: .55; transition: opacity .15s; flex-shrink: 0; }
+    .tab:hover { color: var(--primary); background: var(--surface); }
+    .tab:hover svg { opacity: .8; }
+    .tab.active { color: #fff; background: var(--primary); font-weight: 600; }
+    .tab.active svg { opacity: 1; }
+    .tab-badge { display: inline-flex; align-items: center; justify-content: center; background: var(--red); color: #fff; font-size: 9px; font-weight: 700; border-radius: 999px; min-width: 15px; height: 15px; padding: 0 3px; margin-left: 1px; }
+    .tab.active .tab-badge { background: rgba(255,255,255,.25); color: #fff; }
+    .tab-badge-count { background: var(--border); color: var(--muted); }
+    .tab.active .tab-badge-count { background: rgba(255,255,255,.2); color: rgba(255,255,255,.85); }
+    .tabs-spacer { flex: 1; }
+
+    .main { flex: 1; padding: 24px; max-width: 980px; margin: 0 auto; width: 100%; }
+
+    .guide-section { margin-bottom: 28px; }
+    .guide-section:last-child { margin-bottom: 0; }
+    .guide-h2 { font-size: 15px; font-weight: 700; color: var(--primary); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .guide-h2 svg { flex-shrink: 0; color: var(--subtle); }
+    .guide-p { font-size: var(--fs-sm); color: var(--muted); line-height: 1.7; margin-bottom: 8px; }
+    .guide-steps { list-style: none; counter-reset: step; }
+    .guide-steps li { counter-increment: step; display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; font-size: var(--fs-sm); color: #18181B; }
+    .guide-steps li::before { content: counter(step); display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+    .guide-tip { background: var(--blue-bg); border: 1px solid #bfdbfe; border-radius: var(--radius); padding: 10px 14px; font-size: 12px; color: #1d4ed8; display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
+    .guide-tip svg { flex-shrink: 0; margin-top: 1px; }
+    .guide-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
+    .guide-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+    .guide-card-icon { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--radius); background: var(--primary); color: #fff; margin-bottom: 8px; }
+    .guide-card-title { font-size: var(--fs-xs); font-weight: 700; color: var(--primary); margin-bottom: 4px; }
+    .guide-card-desc { font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+    .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background-color: var(--surface); background-image: radial-gradient(circle, #d4d4d8 1px, transparent 1px); background-size: 22px 22px; }
+    .login-card { background: #fff; border: 1px solid var(--border); border-top: 3px solid var(--primary); border-radius: var(--radius-lg); padding: 40px; width: 100%; max-width: 400px; box-shadow: var(--shadow-md); }
+    .login-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: var(--fs-lg); margin-bottom: 8px; }
+    .login-logo svg { width: 22px; height: 22px; color: var(--primary); }
+    .login-eyebrow { font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--subtle); margin-bottom: 20px; }
+    .login-sub { font-size: var(--fs-sm); color: var(--muted); margin-top: -14px; margin-bottom: 28px; }
+    .login-help { font-size: var(--fs-xs); color: var(--subtle); margin-top: 20px; text-align: center; }
+    .login-footer { font-size: 10px; color: var(--subtle); margin-top: 28px; text-align: center; border-top: 1px solid var(--border); padding-top: 16px; }
+    .field { margin-bottom: 16px; }
+    .label { display: block; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+    .input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: var(--fs-sm); background: #fff; color: #18181B; outline: none; transition: border-color .15s, box-shadow .15s; font-family: inherit; }
+    .input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(20,83,45,.10); }
+    .textarea { resize: vertical; min-height: 90px; line-height: 1.6; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 16px; border-radius: var(--radius); font-size: var(--fs-sm); font-weight: 600; cursor: pointer; border: none; transition: background .15s, opacity .15s, transform .08s; font-family: inherit; }
+    .btn:active:not(:disabled) { transform: scale(.98); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+    .btn-secondary { background: var(--primary-light); color: var(--primary); }
+    .btn-secondary:hover:not(:disabled) { background: #dcfce7; }
+    .btn-danger { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+    .btn-danger:hover:not(:disabled) { background: #fee2e2; }
+    .btn-amber { background: var(--amber); color: #fff; }
+    .btn-amber:hover:not(:disabled) { background: #b45309; }
+    .btn-sm { padding: 5px 10px; font-size: var(--fs-xs); }
+    .btn-full { width: 100%; }
+    .error-msg { display: flex; align-items: center; gap: 8px; background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); border-radius: var(--radius); padding: 10px 12px; font-size: var(--fs-xs); margin-top: 12px; }
+
+    .card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; transition: box-shadow .18s; }
+    .card + .card { margin-top: 12px; }
+    .card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .card-title { font-size: var(--fs-sm); font-weight: 600; color: #18181B; }
+    .card-body { padding: 20px; }
+    .section-title { font-size: var(--fs-lg); font-weight: 700; margin-bottom: 4px; letter-spacing: -.02em; }
+    .section-sub { font-size: var(--fs-sm); color: var(--muted); margin-bottom: 20px; }
+
+    .table { width: 100%; border-collapse: collapse; }
+    .table th { text-align: left; font-size: var(--fs-xs); font-weight: 600; color: var(--subtle); text-transform: uppercase; letter-spacing: .06em; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .table td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); vertical-align: middle; }
+    .table tr:last-child td { border-bottom: none; }
+    .table tr:hover td { background: #fafafa; }
+
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; }
+    .badge-green  { background: var(--green-bg);  color: var(--green);  }
+    .badge-red    { background: var(--red-bg);    color: var(--red);    }
+    .badge-amber  { background: var(--amber-bg);  color: var(--amber);  }
+    .badge-blue   { background: var(--blue-bg);   color: var(--blue);   }
+    .badge-gray   { background: var(--primary-light); color: var(--muted); }
+    .badge-orange { background: var(--orange-bg); color: var(--orange); }
+
+    .empty { padding: 48px 20px; text-align: center; color: var(--subtle); }
+    .empty svg { width: 40px; height: 40px; margin: 0 auto 14px; opacity: .22; }
+    .empty p { font-size: var(--fs-sm); line-height: 1.6; }
+
+    .article-row { padding: 14px 20px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .1s; }
+    .article-row:last-child { border-bottom: none; }
+    .article-row:hover { background: #fafafa; }
+    .article-row-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .article-title { font-size: var(--fs-sm); font-weight: 600; color: #18181B; }
+    .article-meta { font-size: var(--fs-xs); color: var(--subtle); margin-top: 3px; }
+    .article-badges { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+    .article-detail { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
+    .article-detail-label { font-size: 10px; font-weight: 600; color: var(--subtle); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .article-detail-text { font-size: var(--fs-sm); color: #18181B; line-height: 1.7; white-space: pre-wrap; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; max-height: 260px; overflow-y: auto; }
+    .report-box { font-family: 'SF Mono','Fira Code',monospace; font-size: 11px; background: #18181B; color: #d4d4d8; border-radius: var(--radius); padding: 12px 14px; overflow-x: auto; margin-bottom: 12px; white-space: pre-wrap; }
+    .chevron { transition: transform .2s; flex-shrink: 0; color: var(--subtle); }
+    .chevron.open { transform: rotate(90deg); }
+
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--primary); color: #fff; padding: 12px 18px; border-radius: var(--radius-lg); font-size: var(--fs-sm); font-weight: 500; box-shadow: var(--shadow-md); z-index: 9999; max-width: 320px; animation: toast-in .22s ease; }
+    .toast.success { background: var(--green); }
+    .toast.error { background: var(--red); }
+
+    .flex { display: flex; } .items-center { align-items: center; } .justify-between { justify-content: space-between; }
+    .gap-2 { gap: 8px; } .gap-3 { gap: 12px; } .mt-4 { margin-top: 16px; } .mb-3 { margin-bottom: 12px; }
+    .muted { color: var(--muted); }
+    .truncate { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .text-mono { font-family: 'SF Mono','Fira Code',monospace; font-size: 12px; }
+    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; }
+    .spin.dark { border-color: rgba(20,83,45,.15); border-top-color: var(--primary); }
+    .loader { padding: 32px; text-align: center; }
+    .inline-form { background: var(--surface); border-top: 1px solid var(--border); padding: 16px 20px; display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .inline-form .field { margin-bottom: 0; flex: 1; min-width: 160px; }
+  </style>
+</head>
+<body x-data="app()" x-init="init()" x-cloak>
+
+  <!-- ══════════════════════════════════════════════════════ LOGIN ══ -->
+  <div x-show="!authenticated" class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+        Diario de la Salud
+      </div>
+      <p class="login-eyebrow">EcoFarma — Panel editorial</p>
+      <p class="login-sub">Ingresa tus credenciales para acceder al panel</p>
+
+      <div class="field">
+        <label class="label">Correo</label>
+        <input
+          type="email"
+          class="input"
+          placeholder="nombre@ecofarma.co"
+          x-model="loginEmail"
+          @keydown.enter="$refs.loginPassword.focus()"
+          autocomplete="username"
+        />
+      </div>
+
+      <div class="field">
+        <label class="label">Contraseña</label>
+        <input
+          type="password"
+          class="input"
+          placeholder="••••••••"
+          x-model="loginPassword"
+          x-ref="loginPassword"
+          @keydown.enter="login()"
+          autocomplete="current-password"
+        />
+      </div>
+
+      <button class="btn btn-primary btn-full" @click="login()" :disabled="authLoading || !loginEmail.trim() || !loginPassword.trim()">
+        <span x-show="authLoading" class="spin"></span>
+        <span x-text="authLoading ? 'Verificando...' : 'Ingresar'"></span>
+      </button>
+
+      <div x-show="authError" class="error-msg">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        <span x-text="authError"></span>
+      </div>
+
+      <p class="login-footer">
+        Ingesta &rarr; reescritura IA &rarr; verificación &rarr; validación humana &rarr; WordPress
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════ DASHBOARD ══ -->
+  <div x-show="authenticated" class="app">
+
+    <header class="header">
+      <div class="header-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+        Diario de la Salud
+        <span class="header-role" x-text="me?.role ?? ''"></span>
+      </div>
+      <div class="header-spacer"></div>
+      <div class="header-status">
+        <span class="dot" :class="{ err: !health?.db }"></span>
+        <span x-text="health?.db ? 'Conectado' : 'Sin BD'"></span>
+      </div>
+      <button
+        class="btn-ghost"
+        @click="triggerAllSources()"
+        :disabled="triggerBusy"
+        title="Ingiere de inmediato todas las fuentes activas, sin esperar su horario"
+      >
+        <span x-show="triggerBusy" class="spin"></span>
+        <span x-text="triggerBusy ? 'Consultando...' : 'Consultar fuentes ahora'"></span>
+      </button>
+      <button class="btn-ghost" @click="logout()">Salir</button>
+    </header>
+
+    <nav class="tabs">
+      <div style="display:flex;align-items:center;gap:2px;width:100%;max-width:980px;margin:0 auto;">
+        <button class="tab" :class="{ active: tab === 'cola' }" @click="tab = 'cola'; loadSection('cola'); loadQueue()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Validación
+          <span x-show="queue.length" class="tab-badge tab-badge-count" x-text="queue.length"></span>
+        </button>
+        <button class="tab" :class="{ active: tab === 'triage' }" @click="tab = 'triage'; loadSection('triage'); loadTriage()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Triage
+          <span x-show="triage.length" class="tab-badge" x-text="triage.length"></span>
+        </button>
+        <button class="tab" :class="{ active: tab === 'publicar' }" @click="tab = 'publicar'; loadSection('publicar'); loadPublishQueue()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          Publicar
+          <span x-show="publishQueue.length" class="tab-badge tab-badge-count" x-text="publishQueue.length"></span>
+        </button>
+        <button class="tab" :class="{ active: tab === 'fuentes' }" @click="tab = 'fuentes'; loadSection('fuentes'); loadSources()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          Fuentes
+        </button>
+        <div class="tabs-spacer"></div>
+        <button class="tab" :class="{ active: tab === 'guia' }" @click="tab = 'guia'; loadSection('guia')" title="Guía de uso">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Guía
+        </button>
+      </div>
+    </nav>
+
+    <main class="main">
+      <div x-show="tab === 'cola'" id="section-cola"></div>
+      <div x-show="tab === 'triage'" id="section-triage"></div>
+      <div x-show="tab === 'publicar'" id="section-publicar"></div>
+      <div x-show="tab === 'fuentes'" id="section-fuentes"></div>
+      <div x-show="tab === 'guia'" id="section-guia"></div>
+    </main>
+  </div>
+
+  <div
+    x-show="toast.show"
+    x-transition.opacity
+    class="toast"
+    :class="toast.type"
+    x-text="toast.msg"
+    style="display:none;"
+  ></div>
+
+<script>
+function app() {
+  return {
+    // Auth
+    loginEmail: '',
+    loginPassword: '',
+    jwtToken: localStorage.getItem('ds_jwt') || '',
+    authenticated: false,
+    authLoading: false,
+    authError: '',
+    me: null,
+
+    // Nav
+    tab: 'cola',
+    _sectionsLoaded: {},
+
+    // Health
+    health: null,
+
+    // Data
+    queue: [],
+    queueLoading: false,
+    triage: [],
+    triageLoading: false,
+    publishQueue: [],
+    publishQueueLoading: false,
+    sources: [],
+    sourcesLoading: false,
+    triggerBusy: false,
+
+    // UI
+    toast: { show: false, msg: '', type: 'success' },
+
+    async init() {
+      if (this.jwtToken) {
+        const ok = await this.tryConnect();
+        if (!ok) { localStorage.removeItem('ds_jwt'); this.jwtToken = ''; }
+      }
+    },
+
+    async loadSection(name) {
+      if (this._sectionsLoaded[name]) return;
+      this._sectionsLoaded[name] = true;
+      const el = document.getElementById(`section-${name}`);
+      if (!el) return;
+      try {
+        const res = await fetch(`/sections/${name}.html`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        el.innerHTML = await res.text();
+        Alpine.initTree(el);
+      } catch (e) {
+        this._sectionsLoaded[name] = false;
+        el.innerHTML = `<div style="padding:32px;text-align:center;color:#dc2626;font-size:13px;">Error al cargar esta sección. Recarga la página.</div>`;
+      }
+    },
+
+    // ── Auth ─────────────────────────────────────────────────────────────
+    async login() {
+      this.authError = '';
+      if (!this.loginEmail.trim() || !this.loginPassword.trim()) return;
+      this.authLoading = true;
+      try {
+        const r = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: this.loginEmail.trim(), password: this.loginPassword }),
+        });
+        const body = await r.json();
+        if (!r.ok) { this.authError = body?.message || 'Credenciales inválidas'; return; }
+        this.jwtToken = body.accessToken;
+        const ok = await this.tryConnect();
+        if (!ok) { this.authError = 'No se pudo conectar al servidor'; this.jwtToken = ''; }
+      } catch {
+        this.authError = 'Error al conectar con el servidor';
+      } finally { this.authLoading = false; }
+    },
+
+    async tryConnect() {
+      try {
+        const meRes = await fetch('/auth/me', { headers: this.headers() });
+        if (!meRes.ok) return false;
+        this.me = await meRes.json();
+        localStorage.setItem('ds_jwt', this.jwtToken);
+        this.authenticated = true;
+        await this.loadSection('cola');
+        await Promise.all([this.loadHealth(), this.loadQueue()]);
+        return true;
+      } catch { return false; }
+    },
+
+    logout() {
+      localStorage.removeItem('ds_jwt');
+      this.jwtToken = ''; this.loginEmail = ''; this.loginPassword = ''; this.authenticated = false;
+      this.me = null; this.queue = []; this.triage = []; this.publishQueue = []; this.sources = []; this.health = null;
+    },
+
+    async loadHealth() {
+      try { const r = await fetch('/health'); if (r.ok) this.health = await r.json(); } catch {}
+    },
+
+    // ── Cola de validación ──────────────────────────────────────────────
+    async loadQueue() {
+      this.queueLoading = true;
+      try {
+        const r = await this.get('/validation/queue');
+        if (r.ok) this.queue = (await r.json()).map(a => ({ ...a, _open: false, _busy: false, _editedTitle: a.rewrittenTitle, _editedSummary: a.rewrittenSummary, _editedContent: a.rewrittenContent }));
+      } finally { this.queueLoading = false; }
+    },
+
+    async validateArticle(a, decision) {
+      a._busy = true;
+      try {
+        const payload = { decision };
+        if (decision === 'RECHAZADO') {
+          payload.notes = prompt('Motivo del rechazo (opcional):') || undefined;
+        } else if (decision === 'EDITADO_Y_VALIDADO') {
+          payload.editedTitle = a._editedTitle;
+          payload.editedSummary = a._editedSummary;
+          payload.editedContent = a._editedContent;
+        }
+        const r = await this.post(`/validation/${a.id}/validate`, payload);
+        if (r.ok) {
+          this.queue = this.queue.filter(x => x.id !== a.id);
+          this.showToast(decision === 'RECHAZADO' ? 'Artículo rechazado' : 'Artículo validado');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.detail || b?.message || 'Error al validar', 'error');
+        }
+      } finally { a._busy = false; }
+    },
+
+    // ── Triage ───────────────────────────────────────────────────────────
+    async loadTriage() {
+      this.triageLoading = true;
+      try {
+        const r = await this.get('/validation/triage');
+        if (r.ok) this.triage = (await r.json()).map(a => ({ ...a, _open: false, _busy: false }));
+      } finally { this.triageLoading = false; }
+    },
+
+    async regenerate(a) {
+      a._busy = true;
+      try {
+        const r = await this.post(`/validation/${a.id}/regenerate`, {});
+        if (r.ok) {
+          this.triage = this.triage.filter(x => x.id !== a.id);
+          this.showToast('Reescritura reencolada');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.detail || b?.message || 'No se pudo regenerar', 'error');
+        }
+      } finally { a._busy = false; }
+    },
+
+    // ── Publicar ─────────────────────────────────────────────────────────
+    async loadPublishQueue() {
+      this.publishQueueLoading = true;
+      try {
+        const r = await this.get('/publish/queue');
+        if (r.ok) this.publishQueue = (await r.json()).map(a => ({ ...a, _busy: false }));
+      } finally { this.publishQueueLoading = false; }
+    },
+
+    async createDraft(a) {
+      a._busy = true;
+      try {
+        const r = await this.post(`/publish/${a.id}/draft`, {});
+        if (r.ok) { const b = await r.json(); a.wordpressPostId = b.wordpressPostId; this.showToast('Borrador creado en WordPress'); }
+        else { const b = await r.json().catch(() => ({})); this.showToast(b?.detail || b?.message || 'Error al crear borrador', 'error'); }
+      } finally { a._busy = false; }
+    },
+
+    async publishArticle(a) {
+      a._busy = true;
+      try {
+        const r = await this.post(`/publish/${a.id}/publish`, {});
+        if (r.ok) { this.publishQueue = this.publishQueue.filter(x => x.id !== a.id); this.showToast('Artículo publicado'); }
+        else { const b = await r.json().catch(() => ({})); this.showToast(b?.detail || b?.message || 'Error al publicar', 'error'); }
+      } finally { a._busy = false; }
+    },
+
+    // ── Fuentes ──────────────────────────────────────────────────────────
+    async loadSources() {
+      this.sourcesLoading = true;
+      try {
+        const r = await this.get('/sources');
+        if (r.ok) this.sources = (await r.json()).map(s => ({ ...s, _scheduledTimeInput: s.scheduledTime || '', _scheduleBusy: false }));
+      } finally { this.sourcesLoading = false; }
+    },
+
+    async toggleSource(s) {
+      const r = await this.patch(`/sources/${s.id}/active`, { isActive: !s.isActive });
+      if (r.ok) { s.isActive = !s.isActive; this.showToast(s.isActive ? 'Fuente activada' : 'Fuente desactivada'); }
+      else this.showToast('No tienes permiso para esta acción', 'error');
+    },
+
+    async saveSchedule(s) {
+      s._scheduleBusy = true;
+      try {
+        const value = (s._scheduledTimeInput || '').trim();
+        const r = await this.patch(`/sources/${s.id}`, { scheduledTime: value === '' ? null : value });
+        if (r.ok) {
+          const updated = await r.json();
+          s.scheduledTime = updated.scheduledTime;
+          s.nextRunAt = updated.nextRunAt;
+          this.showToast(s.scheduledTime ? `Horario diario fijado a las ${s.scheduledTime}` : 'Horario diario desactivado (queda solo manual)');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo guardar el horario', 'error');
+        }
+      } finally { s._scheduleBusy = false; }
+    },
+
+    // ── Disparo manual de ingesta ────────────────────────────────────────
+    async triggerAllSources() {
+      this.triggerBusy = true;
+      try {
+        const r = await this.post('/ingestion/trigger-all', {});
+        if (r.ok) {
+          const b = await r.json();
+          this.showToast(b.triggered > 0 ? `Consultando ${b.triggered} fuente(s): ${b.sources.join(', ')}` : 'No hay fuentes activas para consultar');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message || 'No se pudo disparar la ingesta', 'error');
+        }
+      } finally { this.triggerBusy = false; }
+    },
+
+    // ── HTTP helpers ─────────────────────────────────────────────────────
+    headers() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.jwtToken}` }; },
+    async _fetch(url, opts) {
+      const res = await fetch(url, opts);
+      if (res.status === 401 && this.authenticated) {
+        this.logout();
+        this.showToast('Sesión expirada — vuelve a iniciar sesión', 'error');
+      }
+      return res;
+    },
+    get(url)        { return this._fetch(url, { headers: this.headers() }); },
+    post(url, body) { return this._fetch(url, { method: 'POST',  headers: this.headers(), body: JSON.stringify(body) }); },
+    patch(url, body){ return this._fetch(url, { method: 'PATCH', headers: this.headers(), body: JSON.stringify(body) }); },
+
+    // ── Utils ────────────────────────────────────────────────────────────
+    showToast(msg, type = 'success') {
+      this.toast = { show: true, msg, type };
+      setTimeout(() => { this.toast.show = false; }, 3000);
+    },
+
+    timeAgo(iso) {
+      if (!iso) return '—';
+      const diff = Date.now() - new Date(iso).getTime();
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1)  return 'Ahora mismo';
+      if (mins < 60) return `hace ${mins} min`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24)  return `hace ${hrs}h`;
+      const days = Math.floor(hrs / 24);
+      return `hace ${days} día${days !== 1 ? 's' : ''}`;
+    },
+
+    riskBadge(level) {
+      return { BAJO: 'badge-green', MEDIO: 'badge-amber', ALTO: 'badge-red' }[level] || 'badge-gray';
+    },
+    checkBadge(status) {
+      return { APROBADO: 'badge-green', RECHAZADO: 'badge-red', PENDIENTE: 'badge-gray' }[status] || 'badge-gray';
+    },
+    stateBadge(state) {
+      const map = {
+        RECOLECTADO: 'badge-gray', DESCARTADO: 'badge-gray', EVALUADO: 'badge-blue', REESCRITO: 'badge-blue',
+        GROUNDING_FALLIDO: 'badge-red', CUMPLIMIENTO_FALLIDO: 'badge-red', BORRADOR: 'badge-amber',
+        EN_VALIDACION: 'badge-amber', VALIDADO: 'badge-green', RECHAZADO: 'badge-red',
+        PUBLICADO: 'badge-green', ERROR: 'badge-red',
+      };
+      return map[state] || 'badge-gray';
+    },
+  };
+}
+</script>
+</body>
+</html>
