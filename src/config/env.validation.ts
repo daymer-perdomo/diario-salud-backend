@@ -3,8 +3,13 @@ import { z } from 'zod';
 export const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL es obligatorio'),
 
-  REDIS_HOST: z.string().min(1),
-  REDIS_PORT: z.coerce.number().int().positive(),
+  /// Connection string unico (ej. Render Key Value: "redis://user:pass@host:port").
+  /// Si esta presente tiene prioridad sobre REDIS_HOST/PORT/PASSWORD --
+  /// ver buildRedisConnectionOptions. Local (Homebrew) sigue usando los
+  /// tres campos separados, sin necesidad de REDIS_URL.
+  REDIS_URL: z.string().optional(),
+  REDIS_HOST: z.string().default('localhost'),
+  REDIS_PORT: z.coerce.number().int().positive().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),
 
   JWT_SECRET: z.string().min(8, 'JWT_SECRET debe tener al menos 8 caracteres'),

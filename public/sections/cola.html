@@ -3,6 +3,67 @@
 
       <div class="card">
         <div class="card-header">
+          <span class="card-title">Corridas de ingesta</span>
+          <button class="btn btn-secondary btn-sm" @click="loadRuns()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Actualizar
+          </button>
+        </div>
+
+        <div x-show="me?.role === 'ADMIN' || me?.role === 'EDITOR'" class="inline-form">
+          <button class="btn btn-primary btn-sm" @click="triggerAllSources()" :disabled="triggerBusy" title="Ingiere de inmediato todas las fuentes activas">
+            <span x-show="triggerBusy" class="spin"></span>
+            <span x-text="triggerBusy ? 'Consultando...' : 'Correr ahora'"></span>
+          </button>
+
+          <div class="field">
+            <label class="label">Programar corrida</label>
+            <input type="datetime-local" class="input" x-model="scheduleAt" />
+          </div>
+          <button class="btn btn-secondary btn-sm" @click="scheduleRun()" :disabled="scheduleBusy || !scheduleAt">
+            <span x-show="scheduleBusy" class="spin dark"></span>
+            Programar
+          </button>
+        </div>
+
+        <div x-show="runsLoading" class="loader"><span class="spin dark"></span></div>
+
+        <div x-show="!runsLoading && !runs.length" class="empty">
+          <p>Aún no hay corridas registradas</p>
+        </div>
+
+        <div x-show="!runsLoading && runs.length">
+          <template x-for="run in runs" :key="run.id">
+            <div class="article-row" style="cursor:default;">
+              <div class="article-row-head">
+                <div style="min-width:0;flex:1;">
+                  <div class="flex items-center gap-2">
+                    <span class="badge" :class="runStatusBadge(run.status)" x-text="runStatusLabel(run.status)"></span>
+                    <span class="muted" style="font-size:var(--fs-xs);" x-text="run.triggerType === 'SCHEDULED' ? 'Automática' : 'Manual'"></span>
+                  </div>
+                  <div class="article-meta">
+                    <span x-show="run.status === 'PROGRAMADO'" x-text="`Programada para ${formatDateTime(run.startedAt)}`"></span>
+                    <span x-show="run.status !== 'PROGRAMADO'" x-text="`Inicio: ${formatDateTime(run.startedAt)} · Fin: ${run.status === 'EN_CURSO' ? 'en curso' : formatDateTime(run.finishedAt)}`"></span>
+                    <span x-show="run.sourceCodes?.length" x-text="` · ${run.sourceCodes.length} fuente(s)`"></span>
+                  </div>
+                </div>
+                <button
+                  x-show="run.status === 'PROGRAMADO' && (me?.role === 'ADMIN' || me?.role === 'EDITOR')"
+                  class="btn btn-danger btn-sm"
+                  @click="cancelRun(run)"
+                  :disabled="run._busy"
+                >
+                  <span x-show="run._busy" class="spin"></span>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
           <span class="card-title" x-text="`${queue.length} artículo${queue.length !== 1 ? 's' : ''} en cola`"></span>
           <button class="btn btn-secondary btn-sm" @click="loadQueue()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>

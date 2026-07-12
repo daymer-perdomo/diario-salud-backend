@@ -7,10 +7,12 @@ import { AuthModule } from '../auth/auth.module';
 import { IngestionDispatcher } from './ingestion.dispatcher';
 import { IngestionProcessor } from './ingestion.processor';
 import { IngestionController } from './ingestion.controller';
+import { IngestionRunsService } from './ingestion-runs.service';
+import { IngestionRunTrackerService } from './ingestion-run-tracker.service';
 
 @Module({
   imports: [QueueModule, SourcesModule, ArticlesModule, AuditModule, AuthModule],
   controllers: [IngestionController],
-  providers: [IngestionDispatcher, IngestionProcessor],
+  providers: [IngestionDispatcher, IngestionProcessor, IngestionRunsService, IngestionRunTrackerService],
 })
 export class IngestionModule {}

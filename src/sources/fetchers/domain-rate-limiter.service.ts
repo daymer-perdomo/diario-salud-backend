@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RateLimiterRedis } from 'rate-limiter-flexible';
 import Redis from 'ioredis';
+import { buildRedisConnectionOptions } from '../../config/redis-connection.util';
 
 /// Limita la frecuencia de peticiones salientes por dominio, para no ser
 /// bloqueados por los sitios de gobierno (varios ya usan Cloudflare/Akamai).
@@ -13,9 +14,7 @@ export class DomainRateLimiterService {
 
   constructor(config: ConfigService) {
     const redisClient = new Redis({
-      host: config.get<string>('REDIS_HOST'),
-      port: config.get<number>('REDIS_PORT'),
-      password: config.get<string>('REDIS_PASSWORD') || undefined,
+      ...buildRedisConnectionOptions(config),
       enableOfflineQueue: false,
     });
 

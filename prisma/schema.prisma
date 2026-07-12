@@ -69,6 +69,49 @@ enum ActorType {
   HUMAN
 }
 
+enum IngestionRunStatus {
+  PROGRAMADO
+  EN_CURSO
+  COMPLETADO
+  CANCELADO
+}
+
+enum IngestionTriggerType {
+  MANUAL
+  SCHEDULED
+}
+
+/// Historial de corridas de ingesta -- una fila por disparo del
+/// dispatcher, ya sea manual (boton "Consultar ahora" / "Correr ahora" o
+/// una corrida programada a futuro desde el calendario -- ambas cuentan
+/// como MANUAL porque hay un humano detras) o automatico (Source.scheduledTime,
+/// triggerType SCHEDULED). Registra QUE se disparo y CUANDO, no el detalle
+/// de cada articulo (eso sigue viviendo en Article/AuditLog).
+/// createdByUserId es null en corridas SCHEDULED -- no hay un humano detras de esas.
+/// Una corrida programada a futuro se crea con status PROGRAMADO y
+/// startedAt = la fecha/hora elegida; al dispararse el cron solo cambia el
+/// status (startedAt ya coincide con la hora real de disparo). "Termina"
+/// (finishedAt) significa fin de la etapa de ingesta unicamente -- las
+/// etapas de IA que siguen (score/rewrite/grounding/compliance) corren
+/// despues de forma independiente y no bloquean finishedAt.
+model IngestionRun {
+  id          String               @id @default(uuid())
+  status      IngestionRunStatus   @default(PROGRAMADO)
+  triggerType IngestionTriggerType
+  /// institutionCode[] de las fuentes incluidas en esta corrida.
+  sourceCodes Json
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  createdByUserId String?
+  createdBy       User?   @relation("IngestionRunCreatedBy", fields: [createdByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([status, startedAt])
+  @@map("ingestion_runs")
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -83,6 +126,7 @@ model User {
   updatedSources        Source[]  @relation("SourceUpdatedBy")
   validatedArticles      Article[] @relation("ArticleValidator")
   publishedArticles      Article[] @relation("ArticlePublishedBy")
+  scheduledIngestionRuns IngestionRun[] @relation("IngestionRunCreatedBy")
 
   @@map("users")
 }

@@ -74,8 +74,8 @@
     .guide-h2 svg { flex-shrink: 0; color: var(--subtle); }
     .guide-p { font-size: var(--fs-sm); color: var(--muted); line-height: 1.7; margin-bottom: 8px; }
     .guide-steps { list-style: none; counter-reset: step; }
-    .guide-steps li { counter-increment: step; display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; font-size: var(--fs-sm); color: #18181B; }
-    .guide-steps li::before { content: counter(step); display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+    .guide-steps li { counter-increment: step; position: relative; padding-left: 34px; margin-bottom: 10px; font-size: var(--fs-sm); color: #18181B; }
+    .guide-steps li::before { content: counter(step); position: absolute; left: 0; top: 1px; display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; }
     .guide-tip { background: var(--blue-bg); border: 1px solid #bfdbfe; border-radius: var(--radius); padding: 10px 14px; font-size: 12px; color: #1d4ed8; display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
     .guide-tip svg { flex-shrink: 0; margin-top: 1px; }
     .guide-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
@@ -114,12 +114,14 @@
 
     .card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; transition: box-shadow .18s; }
     .card + .card { margin-top: 12px; }
-    .card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .card-title { font-size: var(--fs-sm); font-weight: 600; color: #18181B; }
     .card-body { padding: 20px; }
     .section-title { font-size: var(--fs-lg); font-weight: 700; margin-bottom: 4px; letter-spacing: -.02em; }
     .section-sub { font-size: var(--fs-sm); color: var(--muted); margin-bottom: 20px; }
 
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-scroll .table { min-width: 560px; }
     .table { width: 100%; border-collapse: collapse; }
     .table th { text-align: left; font-size: var(--fs-xs); font-weight: 600; color: var(--subtle); text-transform: uppercase; letter-spacing: .06em; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
     .table td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); vertical-align: middle; }
@@ -166,6 +168,29 @@
     .loader { padding: 32px; text-align: center; }
     .inline-form { background: var(--surface); border-top: 1px solid var(--border); padding: 16px 20px; display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
     .inline-form .field { margin-bottom: 0; flex: 1; min-width: 160px; }
+
+    /* ── Responsive ────────────────────────────────────────────────── */
+    @media (max-width: 680px) {
+      .main { padding: 16px 12px; }
+      .header { flex-wrap: wrap; height: auto; min-height: 56px; padding: 10px 16px; row-gap: 8px; }
+      .header-spacer { flex-basis: 100%; height: 0; }
+      .header-status { order: 2; margin-right: auto; }
+      .btn-ghost { order: 3; }
+      .card-header { padding: 14px 16px; }
+      .card-body { padding: 16px; }
+      .inline-form { padding: 14px 16px; }
+      .article-row { padding: 12px 16px; }
+      .section-title { font-size: 17px; }
+    }
+    @media (max-width: 480px) {
+      .article-row-head { flex-wrap: wrap; }
+      .article-badges { justify-content: flex-start; flex-basis: 100%; flex-shrink: 1; width: 100%; }
+    }
+    @media (max-width: 420px) {
+      .header-role { display: none; }
+      .header-status span:not(.dot) { display: none; }
+      .btn-ghost { font-size: 10px; padding: 5px 8px; }
+    }
   </style>
 </head>
 <body x-data="app()" x-init="init()" x-cloak>
@@ -253,7 +278,7 @@
 
     <nav class="tabs">
       <div style="display:flex;align-items:center;gap:2px;width:100%;max-width:980px;margin:0 auto;">
-        <button class="tab" :class="{ active: tab === 'cola' }" @click="tab = 'cola'; loadSection('cola'); loadQueue()">
+        <button class="tab" :class="{ active: tab === 'cola' }" @click="tab = 'cola'; loadSection('cola'); loadQueue(); loadRuns()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           Validación
           <span x-show="queue.length" class="tab-badge tab-badge-count" x-text="queue.length"></span>
@@ -327,6 +352,10 @@ function app() {
     sources: [],
     sourcesLoading: false,
     triggerBusy: false,
+    runs: [],
+    runsLoading: false,
+    scheduleAt: '',
+    scheduleBusy: false,
 
     // UI
     toast: { show: false, msg: '', type: 'success' },
@@ -347,7 +376,6 @@ function app() {
         const res = await fetch(`/sections/${name}.html`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         el.innerHTML = await res.text();
-        Alpine.initTree(el);
       } catch (e) {
         this._sectionsLoaded[name] = false;
         el.innerHTML = `<div style="padding:32px;text-align:center;color:#dc2626;font-size:13px;">Error al cargar esta sección. Recarga la página.</div>`;
@@ -383,7 +411,7 @@ function app() {
         localStorage.setItem('ds_jwt', this.jwtToken);
         this.authenticated = true;
         await this.loadSection('cola');
-        await Promise.all([this.loadHealth(), this.loadQueue()]);
+        await Promise.all([this.loadHealth(), this.loadQueue(), this.loadRuns()]);
         return true;
       } catch { return false; }
     },
@@ -391,7 +419,7 @@ function app() {
     logout() {
       localStorage.removeItem('ds_jwt');
       this.jwtToken = ''; this.loginEmail = ''; this.loginPassword = ''; this.authenticated = false;
-      this.me = null; this.queue = []; this.triage = []; this.publishQueue = []; this.sources = []; this.health = null;
+      this.me = null; this.queue = []; this.triage = []; this.publishQueue = []; this.sources = []; this.health = null; this.runs = [];
     },
 
     async loadHealth() {
@@ -526,6 +554,57 @@ function app() {
       } finally { this.triggerBusy = false; }
     },
 
+    // ── Corridas de ingesta (historial + calendario) ────────────────────
+    async loadRuns() {
+      this.runsLoading = true;
+      try {
+        const r = await this.get('/ingestion/runs');
+        if (r.ok) this.runs = (await r.json()).map(run => ({ ...run, _busy: false }));
+      } finally { this.runsLoading = false; }
+    },
+
+    async scheduleRun() {
+      if (!this.scheduleAt) return;
+      this.scheduleBusy = true;
+      try {
+        const runAt = new Date(this.scheduleAt).toISOString();
+        const r = await this.post('/ingestion/schedule', { runAt });
+        if (r.ok) {
+          this.scheduleAt = '';
+          this.showToast('Corrida programada');
+          await this.loadRuns();
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message || 'No se pudo programar la corrida', 'error');
+        }
+      } finally { this.scheduleBusy = false; }
+    },
+
+    async cancelRun(run) {
+      run._busy = true;
+      try {
+        const r = await this.delete(`/ingestion/schedule/${run.id}`);
+        if (r.ok) {
+          this.showToast('Corrida programada cancelada');
+          await this.loadRuns();
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message || 'No se pudo cancelar la corrida', 'error');
+        }
+      } finally { run._busy = false; }
+    },
+
+    runStatusBadge(status) {
+      return { PROGRAMADO: 'badge-blue', EN_CURSO: 'badge-amber', COMPLETADO: 'badge-green', CANCELADO: 'badge-gray' }[status] || 'badge-gray';
+    },
+    runStatusLabel(status) {
+      return { PROGRAMADO: 'Programado', EN_CURSO: 'En curso', COMPLETADO: 'Completado', CANCELADO: 'Cancelado' }[status] || status;
+    },
+    formatDateTime(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    },
+
     // ── HTTP helpers ─────────────────────────────────────────────────────
     headers() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.jwtToken}` }; },
     async _fetch(url, opts) {
@@ -539,6 +618,7 @@ function app() {
     get(url)        { return this._fetch(url, { headers: this.headers() }); },
     post(url, body) { return this._fetch(url, { method: 'POST',  headers: this.headers(), body: JSON.stringify(body) }); },
     patch(url, body){ return this._fetch(url, { method: 'PATCH', headers: this.headers(), body: JSON.stringify(body) }); },
+    delete(url)     { return this._fetch(url, { method: 'DELETE', headers: this.headers() }); },
 
     // ── Utils ────────────────────────────────────────────────────────────
     showToast(msg, type = 'success') {

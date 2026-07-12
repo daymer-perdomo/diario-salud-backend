@@ -73,15 +73,17 @@
   -H "X-API-Key: &lt;PUBLIC_API_KEY&gt;"</div>
 
         <p class="guide-p"><strong>GET /articles</strong> — listado paginado.</p>
-        <table class="table" style="margin-bottom:16px;">
-          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
-          <tbody>
-            <tr><td class="text-mono">page</td><td>entero, ≥1</td><td>Página a devolver. Por defecto 1.</td></tr>
-            <tr><td class="text-mono">pageSize</td><td>entero, 1–100</td><td>Tamaño de página. Por defecto 20.</td></tr>
-            <tr><td class="text-mono">sourceId</td><td>UUID</td><td>Filtra por una fuente específica (ver <code>id</code> en la pestaña Fuentes).</td></tr>
-            <tr><td class="text-mono">state</td><td><code>VALIDADO</code> | <code>PUBLICADO</code></td><td>Filtra solo aprobados-no-publicados o solo ya publicados. Si se omite, devuelve ambos.</td></tr>
-          </tbody>
-        </table>
+        <div class="table-scroll" style="margin-bottom:16px;">
+          <table class="table">
+            <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+            <tbody>
+              <tr><td class="text-mono">page</td><td>entero, ≥1</td><td>Página a devolver. Por defecto 1.</td></tr>
+              <tr><td class="text-mono">pageSize</td><td>entero, 1–100</td><td>Tamaño de página. Por defecto 20.</td></tr>
+              <tr><td class="text-mono">sourceId</td><td>UUID</td><td>Filtra por una fuente específica (ver <code>id</code> en la pestaña Fuentes).</td></tr>
+              <tr><td class="text-mono">state</td><td><code>VALIDADO</code> | <code>PUBLICADO</code></td><td>Filtra solo aprobados-no-publicados o solo ya publicados. Si se omite, devuelve ambos.</td></tr>
+            </tbody>
+          </table>
+        </div>
 
         <p class="guide-p"><strong>GET /articles/:id</strong> — detalle de un artículo. Devuelve 404 tanto si no existe como si existe pero aún no fue aprobado por un revisor.</p>
 
