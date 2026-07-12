@@ -45,6 +45,7 @@ services:
           property: connectionString
       - key: REDIS_URL
         fromService:
+          type: keyvalue
           name: diario-salud-redis
           property: connectionString
 
