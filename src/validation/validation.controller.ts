@@ -19,6 +19,16 @@ export class ValidationController {
     return this.validationService.getReviewQueue();
   }
 
+  /// Vista unificada (tabla del dashboard con filtro de Estado en el
+  /// sidebar) -- union de revision + triage + validado + rechazado +
+  /// publicado. Antes de esta ruta el panel pedia queue/triage/publish
+  /// por separado y los mostraba en pestanas distintas.
+  @Get('all')
+  @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
+  getAll() {
+    return this.validationService.getAllForStaff();
+  }
+
   @Get('triage')
   @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
   getTriage() {

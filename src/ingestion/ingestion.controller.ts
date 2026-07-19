@@ -27,6 +27,16 @@ export class IngestionController {
     return this.dispatcher.triggerAll(user.userId);
   }
 
+  /// Boton "Buscar otras 3" del panel (por fuente, no dispara las demas).
+  /// Mismo rol que trigger-all -- consume creditos de IA reales cuando lo
+  /// que se traiga avance a scoring, igual que cualquier otro disparo de
+  /// ingesta.
+  @Post('fetch-more/:sourceId')
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  fetchMore(@Param('sourceId') sourceId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.dispatcher.fetchMore(sourceId, user.userId);
+  }
+
   /// Historial de corridas (manual, programada y automatica) para la
   /// pestana Cola de validacion. Visible para todos los roles que ya ven
   /// esa pestana -- programar/cancelar si queda restringido a ADMIN/EDITOR.

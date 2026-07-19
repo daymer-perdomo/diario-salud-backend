@@ -7,7 +7,13 @@
 /// asi), algo que la verificacion adversarial (capa 2) por si sola no
 /// puede detectar si el modelo verificador tambien se equivoca en el
 /// mismo numero.
-const NUMBER_PATTERN = /\d[\d.,]*\s?%?/g;
+// Solo se incluye "." o "," como parte del numero si va seguido de mas
+// digitos (separador de miles/decimales real). Un numero seguido de
+// puntuacion de cierre de frase (ej. "123." al final de una oracion) NO
+// debe capturar ese punto -- de lo contrario "123," en el original y
+// "123." en el reescrito (mismo numero, distinta puntuacion circundante)
+// se normalizan distinto y generan un falso mismatch.
+const NUMBER_PATTERN = /\d+(?:[.,]\d+)*\s?%?/g;
 
 export interface UngroundedNumeric {
   value: string;

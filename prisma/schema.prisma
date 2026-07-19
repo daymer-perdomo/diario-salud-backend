@@ -34,6 +34,15 @@ enum RiskLevel {
   ALTO
 }
 
+/// Brief seccion 12: dimension de taxonomia independiente del riesgo --
+/// clasifica la NATURALEZA del contenido, no su nivel de riesgo (un
+/// articulo puede ser type-alerta y riesgo-bajo a la vez).
+enum ContentType {
+  ALERTA
+  PREVENCION
+  VIGILANCIA
+}
+
 enum CheckStatus {
   PENDIENTE
   APROBADO
@@ -81,6 +90,13 @@ enum IngestionTriggerType {
   SCHEDULED
 }
 
+enum IngestionRunSourceStatus {
+  PENDIENTE
+  EN_CURSO
+  COMPLETADO
+  ERROR
+}
+
 /// Historial de corridas de ingesta -- una fila por disparo del
 /// dispatcher, ya sea manual (boton "Consultar ahora" / "Correr ahora" o
 /// una corrida programada a futuro desde el calendario -- ambas cuentan
@@ -108,8 +124,53 @@ model IngestionRun {
 
   createdAt DateTime @default(now())
 
+  /// Progreso por fuente dentro de esta corrida (2026-07-17, pedido
+  /// explicito del usuario: "muestra que fuente se esta consultando en
+  /// ese momento, paso a paso") -- ver comentario de IngestionRunSource.
+  sources IngestionRunSource[]
+
   @@index([status, startedAt])
+  /// Ademas de este indice, la migracion 20260717190000 agrega un indice
+  /// UNIQUE parcial (WHERE status = 'EN_CURSO') que Prisma no puede
+  /// expresar en este DSL -- garantiza a nivel de base de datos que nunca
+  /// exista mas de una corrida EN_CURSO a la vez. Ver IngestionRunsService
+  /// .startNow()/markRunning() para donde se atrapa la violacion.
   @@map("ingestion_runs")
+}
+
+/// Progreso de UNA fuente dentro de UNA corrida -- lo que alimenta el
+/// "paso a paso" del panel (pedido explicito del usuario 2026-07-17: ver
+/// que fuente se esta consultando en este momento, no solo el resumen
+/// final de la corrida). Las filas se crean todas en PENDIENTE apenas
+/// arranca la corrida (mismo orden que sourceCodes) y las va actualizando
+/// IngestionRunTrackerService al vuelo, escuchando los eventos
+/// 'active'/'completed'/'failed' de BullMQ -- nunca se infiere el estado
+/// desde otro lado (nunca se inventa que una fuente "ya debe haber
+/// terminado" solo por tiempo transcurrido).
+///
+/// jobId es determinista por fuente+minuto (ver IngestionDispatcher
+/// .enqueueSource) y un mismo job puede pertenecer a mas de una corrida
+/// (dos disparos en el mismo minuto) -- por eso esta fila es por
+/// (runId, sourceId), no por jobId: cada corrida lleva su propio progreso
+/// aunque comparta el trabajo real de fondo con otra.
+model IngestionRunSource {
+  id              String                   @id @default(uuid())
+  runId           String
+  run             IngestionRun             @relation(fields: [runId], references: [id], onDelete: Cascade)
+  sourceId        String
+  source          Source                   @relation(fields: [sourceId], references: [id])
+  institutionCode String
+  status          IngestionRunSourceStatus @default(PENDIENTE)
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  itemsCreated    Int?
+  itemsDuplicate  Int?
+  errorMessage    String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([runId, sourceId])
+  @@map("ingestion_run_sources")
 }
 
 model User {
@@ -160,6 +221,22 @@ model Source {
   nextRunAt           DateTime?
   lastSuccessfulCursor Json?
   consecutiveFailures Int         @default(0)
+  /// Tope de items nuevos por corrida de ingesta, configurable desde el
+  /// panel (pestaña Fuentes) -- un solo campo uniforme para los tres
+  /// tipos de adapter (antes vivia disperso dentro de `config` con
+  /// nombres distintos por tipo: maxItemsPerFeed en RSS, maxItemsPerRun
+  /// en HTML_SCRAPE, limit en OPEN_DATA_API). null = usa el default
+  /// propio de cada adapter. Ver comentario del incidente de agotamiento
+  /// de credito del 2026-07-12 en rss.adapter.ts -- este es el freno de
+  /// primera linea contra que otra corrida traiga miles de items de golpe.
+  maxItemsPerRun      Int?
+  /// Ventana de recencia en dias, configurable desde el panel -- se
+  /// aplica en RSS y HTML_SCRAPE (filtra por fecha ANTES de aplicar
+  /// maxItemsPerRun, igual que ya hacia RssAdapter). null = usa el
+  /// default propio del adapter. No aplica a OPEN_DATA_API (SIVIGILA se
+  /// ordena por semana/anio, no tiene una fecha de item individual util
+  /// para este filtro).
+  maxAgeDays          Int?
 
   createdByUserId String?
   createdBy       User?   @relation("SourceCreatedBy", fields: [createdByUserId], references: [id])
@@ -169,7 +246,8 @@ model Source {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  articles Article[]
+  articles         Article[]
+  ingestionRunRows IngestionRunSource[]
 
   @@map("sources")
 }
@@ -195,7 +273,16 @@ model Article {
   originalContentHash String
   originalSnapshotUrl String?
   imageUrl            String?
-  language            String   @default("es")
+  /// Cuantas veces ArticleImageBackfillService intento recuperar la
+  /// imagen despues de la ingesta inicial (2026-07-17, pedido explicito
+  /// del usuario: un job periodico y deterministico -- SIN IA -- que
+  /// reintenta la misma cadena de extraccion og:image/selector cuando
+  /// imageUrl quedo null). Tope MAX_BACKFILL_ATTEMPTS ahi mismo: sin este
+  /// contador, un articulo que genuinamente no tiene imagen (ej.
+  /// Minciencias, verificado en vivo que ni el feed ni og:image traen
+  /// nada) se reintentaria cada corrida del cron para siempre.
+  imageBackfillAttempts Int    @default(0)
+  language              String @default("es")
 
   // --- Filtrado / puntuacion (IA) ---
   isRelevant       Boolean?
@@ -203,13 +290,19 @@ model Article {
   relevanceReason  String?
   riskLevel        RiskLevel?
   riskReason       String?
+  contentType      ContentType?
 
   // --- Reescritura (IA) ---
-  rewrittenTitle   String?
-  rewrittenSummary String?
-  rewrittenContent String?
-  rewriteModel     String?
-  rewriteAttempts  Int     @default(0)
+  rewrittenTitle       String?
+  rewrittenSummary     String?
+  rewrittenContent     String?
+  // Brief seccion 11: secciones obligatorias del articulo publicado que
+  // no encajan en titulo/resumen/cuerpo -- "Puntos clave" (lista breve) y
+  // "Por que es importante" (bloque contextual). Ver PublishService.buildPostBody.
+  rewrittenKeyPoints   String[] @default([])
+  rewrittenWhyItMatters String?
+  rewriteModel         String?
+  rewriteAttempts      Int     @default(0)
 
   // --- Verificacion de fidelidad (anti-invencion) ---
   groundingStatus CheckStatus?
@@ -231,9 +324,7 @@ model Article {
   validationNotes     String?
   validatedAt          DateTime?
 
-  // --- Publicacion (solo tras validacion) ---
-  wordpressPostId     Int?
-  wordpressTagIds     Json?
+  // --- Publicacion (solo tras validacion, directo a nuestra API publica -- sin WordPress) ---
   publishedAt         DateTime?
   publishedByUserId   String?
   publishedBy         User?    @relation("ArticlePublishedBy", fields: [publishedByUserId], references: [id])
@@ -271,4 +362,48 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@map("audit_logs")
+}
+
+/// Registro de cada llamada real a la API de Anthropic, con el costo
+/// calculado a partir de los tokens que la API realmente reporto en
+/// `usage` (nunca estimado antes de la llamada). Es la fuente de verdad
+/// que LlmBudgetService consulta para decidir si bloquear la siguiente
+/// llamada -- ver su comentario para el porque de este freno (presupuesto
+/// maximo en USD, MAX_LLM_BUDGET_USD).
+model LlmCall {
+  id           String   @id @default(uuid())
+  stage        String
+  model        String
+  inputTokens  Int
+  outputTokens Int
+  costUsd      Decimal  @db.Decimal(10, 6)
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("llm_calls")
+}
+
+/// Una fila por cada instruccion que se le envia a Claude como
+/// `system` prompt (ver PromptKey). Piso 2026-07-16: el usuario pidio
+/// que los prompts NO vivan hardcodeados en el codigo -- deben poder
+/// editarse (o redefinir sus reglas) desde el panel sin un deploy.
+/// El seed crea la version por defecto de cada key si no existe una fila
+/// todavia; una vez editado por un ADMIN, un reseed no debe pisar el
+/// contenido editado (ver logica de upsert en seed.ts).
+enum PromptKey {
+  SCORING
+  REWRITE
+  VERIFY_CLAIMS
+  COMPLIANCE
+  EXTRACT_CLAIMS
+}
+
+model PromptTemplate {
+  id          String    @id @default(uuid())
+  key         PromptKey @unique
+  content     String    @db.Text
+  updatedAt   DateTime  @updatedAt
+  updatedById String?
+
+  @@map("prompt_templates")
 }

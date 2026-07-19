@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "PromptKey" ADD VALUE 'EXTRACT_CLAIMS';
+

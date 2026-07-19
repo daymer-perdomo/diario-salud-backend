@@ -1,26 +1,42 @@
-# Render Blueprint -- crea junto el servicio web (Docker), Postgres y
+# Render Blueprint -- crea junto los servicios web (Docker), Postgres y
 # Key Value (Redis) para "Diario de la Salud". Al conectar el repo en
 # Render (New -> Blueprint), esto aprovisiona todo automaticamente.
 #
 # Variables marcadas con `sync: false` NO se guardan en este archivo ni
 # en git -- Render las pide una sola vez al crear el Blueprint. Hay que
 # tenerlas a mano antes de aplicar este archivo (ver README/guia de
-# deploy): ANTHROPIC_API_KEY, credenciales de WordPress, y el usuario/
-# password inicial del panel.
+# deploy): GEMINI_API_KEY y el usuario/password inicial del panel.
 #
 # El plan del servicio web es "starter" (no el free tier) a proposito:
 # preDeployCommand (usado aqui para correr las migraciones de Prisma) y
 # el cron interno de ingesta programada requieren que el proceso este
 # siempre corriendo, algo que el free tier de Render no garantiza.
+#
+# Staging y produccion son DOS servicios y DOS bases de datos totalmente
+# separados -- probar cambios de pipeline/schema contra una base de datos
+# de prueba antes de tocar la de produccion.
+#
+# Decision 2026-07-16: este backend ya NO publica hacia un WordPress
+# externo -- expone su propia API publica de solo lectura (GET /articles)
+# como destino final. Por eso no hay variables WORDPRESS_* aqui.
 
 databases:
   - name: diario-salud-db
     plan: basic-256mb
     region: virginia
     postgresMajorVersion: "16"
+  - name: diario-salud-db-staging
+    plan: basic-256mb
+    region: virginia
+    postgresMajorVersion: "16"
 
 services:
   - name: diario-salud-redis
+    type: keyvalue
+    plan: starter
+    region: virginia
+    maxmemoryPolicy: noeviction
+  - name: diario-salud-redis-staging
     type: keyvalue
     plan: starter
     region: virginia
@@ -60,21 +76,55 @@ services:
 
       - key: JWT_EXPIRES_IN
         value: "8h"
-      - key: ANTHROPIC_MODEL
-        value: "claude-sonnet-5"
-      - key: WORDPRESS_BASE_URL
-        value: "https://ecofarma.co"
+      - key: GEMINI_MODEL
+        value: "gemini-3.1-flash-lite"
 
       # Estos SI requieren un valor real tuyo -- Render los pide al crear
       # el Blueprint (una sola vez; para cambiarlos despues, editalos en
       # el dashboard del servicio, no aqui).
-      - key: ANTHROPIC_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
-      - key: WORDPRESS_APP_USERNAME
+      - key: SEED_ADMIN_EMAIL
         sync: false
-      - key: WORDPRESS_APP_PASSWORD
+      - key: SEED_ADMIN_PASSWORD
         sync: false
-      - key: WORDPRESS_DIARIO_SALUD_CATEGORY_ID
+
+  # Copia identica del servicio de produccion, apuntando a su propia DB/
+  # Redis. Desplegar y validar aqui primero siempre.
+  - name: diario-salud-backend-staging
+    type: web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./
+    plan: starter
+    region: virginia
+    healthCheckPath: /health
+    preDeployCommand: npx prisma migrate deploy && node dist/prisma/seed.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: diario-salud-db-staging
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: diario-salud-redis-staging
+          property: connectionString
+
+      - key: NODE_ENV
+        value: staging
+
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PUBLIC_API_KEY
+        generateValue: true
+
+      - key: JWT_EXPIRES_IN
+        value: "8h"
+      - key: GEMINI_MODEL
+        value: "gemini-3.1-flash-lite"
+
+      - key: GEMINI_API_KEY
         sync: false
       - key: SEED_ADMIN_EMAIL
         sync: false

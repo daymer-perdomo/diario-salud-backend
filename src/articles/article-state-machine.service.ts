@@ -3,6 +3,7 @@ import {
   Article,
   ArticleState,
   CheckStatus,
+  ContentType,
   Prisma,
   RiskLevel,
   ValidationDecision,
@@ -63,7 +64,13 @@ export class ArticleStateMachineService {
 
   async markEvaluated(
     articleId: string,
-    params: { relevanceScore: number; relevanceReason: string; riskLevel: RiskLevel; riskReason: string },
+    params: {
+      relevanceScore: number;
+      relevanceReason: string;
+      riskLevel: RiskLevel;
+      riskReason: string;
+      contentType: ContentType;
+    },
   ): Promise<Article> {
     return this.prisma.$transaction(async (tx) => {
       const current = await this.getCurrent(tx, articleId);
@@ -78,6 +85,7 @@ export class ArticleStateMachineService {
           relevanceReason: params.relevanceReason,
           riskLevel: params.riskLevel,
           riskReason: params.riskReason,
+          contentType: params.contentType,
         },
       });
       await this.audit.record(
@@ -98,11 +106,27 @@ export class ArticleStateMachineService {
 
   async markRewritten(
     articleId: string,
-    params: { rewrittenTitle: string; rewrittenSummary: string; rewrittenContent: string; rewriteModel: string },
+    params: {
+      rewrittenTitle: string;
+      rewrittenSummary: string;
+      rewrittenContent: string;
+      rewrittenKeyPoints: string[];
+      rewrittenWhyItMatters: string;
+      rewriteModel: string;
+    },
   ): Promise<Article> {
     return this.prisma.$transaction(async (tx) => {
       const current = await this.getCurrent(tx, articleId);
-      this.assertState(current, [ArticleState.EVALUADO, ArticleState.GROUNDING_FALLIDO, ArticleState.CUMPLIMIENTO_FALLIDO]);
+      // EN_VALIDACION incluido: brief seccion 10.2 espera "Regenerar"
+      // disponible tambien en la cola de validacion normal, no solo en
+      // triage -- un validador que no esta conforme con la reescritura
+      // puede pedir una nueva sin tener que rechazar el articulo.
+      this.assertState(current, [
+        ArticleState.EVALUADO,
+        ArticleState.GROUNDING_FALLIDO,
+        ArticleState.CUMPLIMIENTO_FALLIDO,
+        ArticleState.EN_VALIDACION,
+      ]);
 
       const updated = await tx.article.update({
         where: { id: articleId },
@@ -111,6 +135,8 @@ export class ArticleStateMachineService {
           rewrittenTitle: params.rewrittenTitle,
           rewrittenSummary: params.rewrittenSummary,
           rewrittenContent: params.rewrittenContent,
+          rewrittenKeyPoints: params.rewrittenKeyPoints,
+          rewrittenWhyItMatters: params.rewrittenWhyItMatters,
           rewriteModel: params.rewriteModel,
           rewriteAttempts: { increment: 1 },
           // Un nuevo intento de reescritura invalida cualquier veredicto previo.
@@ -260,6 +286,8 @@ export class ArticleStateMachineService {
       editedTitle?: string;
       editedSummary?: string;
       editedContent?: string;
+      editedKeyPoints?: string[];
+      editedWhyItMatters?: string;
     },
   ): Promise<Article> {
     return this.prisma.$transaction(async (tx) => {
@@ -280,6 +308,8 @@ export class ArticleStateMachineService {
           rewrittenTitle: params.editedTitle ?? current.rewrittenTitle,
           rewrittenSummary: params.editedSummary ?? current.rewrittenSummary,
           rewrittenContent: params.editedContent ?? current.rewrittenContent,
+          rewrittenKeyPoints: params.editedKeyPoints ?? current.rewrittenKeyPoints,
+          rewrittenWhyItMatters: params.editedWhyItMatters ?? current.rewrittenWhyItMatters,
         },
       });
       await this.audit.record(
@@ -299,46 +329,19 @@ export class ArticleStateMachineService {
     });
   }
 
-  /// Solo guarda el wordpressPostId del draft creado -- el estado se
-  /// mantiene en VALIDADO. La publicacion real (que sí cambia state) es
-  /// un paso EXPLICITO Y SEPARADO via publish(), nunca automatico.
-  async recordWordpressDraft(articleId: string, wordpressPostId: number, tagIds: number[]): Promise<Article> {
-    return this.prisma.$transaction(async (tx) => {
-      const current = await this.getCurrent(tx, articleId);
-      this.assertState(current, [ArticleState.VALIDADO]);
-
-      const updated = await tx.article.update({
-        where: { id: articleId },
-        data: { wordpressPostId, wordpressTagIds: tagIds as unknown as Prisma.InputJsonValue },
-      });
-      await this.audit.record(
-        {
-          entityType: 'Article',
-          entityId: articleId,
-          action: 'WORDPRESS_DRAFT_CREATED',
-          actorType: 'SYSTEM',
-          fromState: current.state,
-          toState: updated.state,
-          payload: { wordpressPostId },
-        },
-        tx,
-      );
-      return updated;
-    });
-  }
-
   /// Unico metodo autorizado para fijar PUBLICADO. Revalida en codigo la
   /// misma condicion que exige el CHECK "publish_requires_validation" de
-  /// Postgres -- redundante a proposito (defensa en profundidad).
+  /// Postgres -- redundante a proposito (defensa en profundidad). Decision
+  /// 2026-07-16: publicar ya no depende de WordPress -- este es el paso
+  /// final, expone el articulo en nuestra propia API publica (GET
+  /// /articles).
   async publish(articleId: string, actorId: string): Promise<Article> {
     return this.prisma.$transaction(async (tx) => {
       const current = await this.getCurrent(tx, articleId);
       this.assertState(current, [ArticleState.VALIDADO]);
 
-      if (!current.validatorId || !current.validatedAt || !current.wordpressPostId) {
-        throw new BadRequestException(
-          `Article ${articleId}: falta validatorId/validatedAt/wordpressPostId -- no se puede publicar`,
-        );
+      if (!current.validatorId || !current.validatedAt) {
+        throw new BadRequestException(`Article ${articleId}: falta validatorId/validatedAt -- no se puede publicar`);
       }
 
       const updated = await tx.article.update({
@@ -354,7 +357,6 @@ export class ArticleStateMachineService {
           actorId,
           fromState: current.state,
           toState: updated.state,
-          payload: { wordpressPostId: current.wordpressPostId },
         },
         tx,
       );

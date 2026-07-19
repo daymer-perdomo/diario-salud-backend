@@ -18,6 +18,8 @@ import { GroundingModule } from './grounding/grounding.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { ValidationModule } from './validation/validation.module';
 import { PublishModule } from './publish/publish.module';
+import { PromptsModule } from './prompts/prompts.module';
+import { PipelineStatusModule } from './pipeline-status/pipeline-status.module';
 
 @Module({
   imports: [
@@ -29,7 +31,7 @@ import { PublishModule } from './publish/publish.module';
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', '..', 'public'),
       renderPath: '*path',
-      exclude: ['/auth/(.*)', '/validation/(.*)', '/sources/(.*)', '/publish/(.*)', '/articles/(.*)', '/articles', '/health'],
+      exclude: ['/auth/(.*)', '/validation/(.*)', '/sources/(.*)', '/publish/(.*)', '/articles/(.*)', '/articles', '/health', '/prompts/(.*)', '/prompts', '/pipeline/(.*)'],
       serveStaticOptions: { index: 'index.html', fallthrough: true },
     }),
 
@@ -48,6 +50,8 @@ import { PublishModule } from './publish/publish.module';
     ComplianceModule,
     ValidationModule,
     PublishModule,
+    PromptsModule,
+    PipelineStatusModule,
   ],
   controllers: [HealthController],
 })

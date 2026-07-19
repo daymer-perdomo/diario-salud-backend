@@ -4,6 +4,7 @@ import { Job, Queue } from 'bullmq';
 import { CheckStatus } from '@prisma/client';
 import { ArticleStateMachineService } from '../articles/article-state-machine.service';
 import { ArticlesService } from '../articles/articles.service';
+import { getRewrittenBodyText } from '../articles/rewritten-text.util';
 import { LLM_SERVICE, LlmService } from '../llm/llm.service.interface';
 import { Claim } from '../llm/schemas/rewrite.schema';
 import { QUEUE_NAMES, JOB_NAMES } from '../queue/queue.constants';
@@ -17,6 +18,22 @@ interface GroundArticleJobData {
 }
 
 const MAX_AUTO_RETRIES = 1;
+
+/// Union de claims declarados (por rewrite) + redescubiertos (por
+/// extractClaims), deduplicados por texto normalizado -- evita verificar
+/// dos veces la misma afirmacion cuando ambas fuentes coinciden (el caso
+/// honesto), sin perder nada que solo una de las dos haya encontrado.
+function mergeClaims(declared: Claim[], extracted: Claim[]): Claim[] {
+  const seen = new Set<string>();
+  const merged: Claim[] = [];
+  for (const claim of [...declared, ...extracted]) {
+    const key = claim.text.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(claim);
+  }
+  return merged;
+}
 
 /// El modulo mas critico del pipeline: es la garantia estructural de que
 /// "nada es inventado" no depende de que la IA se autocalifique. Corre
@@ -38,20 +55,32 @@ export class GroundingProcessor extends WorkerHost {
 
   async process(job: Job<GroundArticleJobData>): Promise<void> {
     const article = await this.articlesService.findById(job.data.articleId);
-    const claims = job.data.claims ?? [];
+    const declaredClaims = job.data.claims ?? [];
+    const rewrittenBodyText = getRewrittenBodyText(article);
+
+    // Capa 2b: segunda opinion adversarial que redescubre los claims
+    // desde el texto reescrito, SIN depender de la lista que el propio
+    // rewrite() autoreporto. Cierra un hueco real: un rewrite que
+    // devuelve claims=[] (deshonesto o simplemente perezoso) antes se
+    // saltaba toda la verificacion de contenido no numerico -- el diff
+    // deterministico de capa 3 solo atrapa numeros, no entidades o
+    // declaraciones inventadas.
+    const extraction = await this.llm.extractClaims({ rewrittenText: rewrittenBodyText });
+    const extractedClaims: Claim[] = extraction.claims.map((c) => ({ ...c, supportingSpanInOriginal: null }));
+    const claims = mergeClaims(declaredClaims, extractedClaims);
 
     // Capa 2: verificacion adversarial independiente (prompt distinto,
-    // sin saber que el texto es una "reescritura propia").
+    // sin saber que el texto es una "reescritura propia") sobre la union
+    // de claims declarados + redescubiertos.
     const verification =
       claims.length > 0
         ? await this.llm.verifyClaims({ originalContent: article.originalContent, claims })
         : { verdicts: [] };
 
-    // Capa 3: diff deterministico de numeros, sin IA.
-    const numericMismatches = findUngroundedNumerics(
-      article.originalContent,
-      article.rewrittenContent ?? '',
-    );
+    // Capa 3: diff deterministico de numeros, sin IA. Incluye
+    // keyPoints/whyItMatters -- no solo rewrittenContent (ver
+    // getRewrittenBodyText).
+    const numericMismatches = findUngroundedNumerics(article.originalContent, rewrittenBodyText);
 
     const noSoportada = verification.verdicts.filter((v) => v.verdict === 'NO_SOPORTADA');
     const parcial = verification.verdicts.filter((v) => v.verdict === 'PARCIAL');
@@ -67,6 +96,8 @@ export class GroundingProcessor extends WorkerHost {
       nullSpanClaimsCount: nullSpanClaims.length,
       summary: {
         totalClaims: claims.length,
+        declaredClaims: declaredClaims.length,
+        extractedOnlyClaims: claims.length - declaredClaims.length,
         noSoportada: noSoportada.length,
         parcial: parcial.length,
         numericMismatches: numericMismatches.length,

@@ -1,16 +1,23 @@
 import { Inject, Logger } from '@nestjs/common';
-import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job, Queue } from 'bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
+import { Job } from 'bullmq';
 import { ArticleStateMachineService } from '../articles/article-state-machine.service';
 import { ArticlesService } from '../articles/articles.service';
 import { LLM_SERVICE, LlmService } from '../llm/llm.service.interface';
-import { QUEUE_NAMES, JOB_NAMES } from '../queue/queue.constants';
+import { QUEUE_NAMES } from '../queue/queue.constants';
 import { isTerminalFailure } from '../queue/is-terminal-failure.util';
 
 interface ScoreArticleJobData {
   articleId: string;
 }
 
+/// Deja el articulo en EVALUADO y se detiene ahi -- ya NO encola a
+/// rewrite. Desde el incidente de agotamiento de credito (2026-07-12,
+/// ver rss.adapter.ts), decidir cuales EVALUADO avanzan a las etapas
+/// caras (rewrite/grounding/compliance, todas con llamadas a LLM) es
+/// responsabilidad de RewriteSelectionService, que solo deja pasar los
+/// mejores DAILY_REWRITE_LIMIT por corrida. Antes, cualquier articulo
+/// marcado isRelevant=true se encolaba de inmediato sin tope alguno.
 @Processor(QUEUE_NAMES.SCORE)
 export class ScoringProcessor extends WorkerHost {
   private readonly logger = new Logger(ScoringProcessor.name);
@@ -19,7 +26,6 @@ export class ScoringProcessor extends WorkerHost {
     private readonly articlesService: ArticlesService,
     private readonly stateMachine: ArticleStateMachineService,
     @Inject(LLM_SERVICE) private readonly llm: LlmService,
-    @InjectQueue(QUEUE_NAMES.REWRITE) private readonly rewriteQueue: Queue,
   ) {
     super();
   }
@@ -44,13 +50,9 @@ export class ScoringProcessor extends WorkerHost {
       relevanceReason: result.relevanceReason,
       riskLevel: result.riskLevel!,
       riskReason: result.riskReason,
+      contentType: result.contentType!,
     });
-
-    await this.rewriteQueue.add(
-      JOB_NAMES.REWRITE_ARTICLE,
-      { articleId: article.id },
-      { attempts: 3, backoff: { type: 'exponential', delay: 10_000 }, removeOnComplete: true },
-    );
+    this.logger.log(`Evaluado, en espera de seleccion diaria: ${article.id}`);
   }
 
   @OnWorkerEvent('failed')

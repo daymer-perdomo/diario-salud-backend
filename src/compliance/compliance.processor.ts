@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { CheckStatus } from '@prisma/client';
 import { ArticleStateMachineService } from '../articles/article-state-machine.service';
 import { ArticlesService } from '../articles/articles.service';
+import { getRewrittenBodyText } from '../articles/rewritten-text.util';
 import { LLM_SERVICE, LlmService } from '../llm/llm.service.interface';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { isTerminalFailure } from '../queue/is-terminal-failure.util';
@@ -28,7 +29,9 @@ export class ComplianceProcessor extends WorkerHost {
   async process(job: Job<CheckComplianceJobData>): Promise<void> {
     const article = await this.articlesService.findById(job.data.articleId);
     const title = article.rewrittenTitle ?? '';
-    const content = article.rewrittenContent ?? '';
+    // Incluye keyPoints/whyItMatters -- no solo rewrittenContent, ver
+    // getRewrittenBodyText.
+    const content = getRewrittenBodyText(article);
 
     const [regexViolations, aiResult] = await Promise.all([
       Promise.resolve(checkRegexRules(title, content)),

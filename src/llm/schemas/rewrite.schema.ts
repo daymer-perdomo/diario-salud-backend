@@ -14,6 +14,13 @@ export const RewriteOutputSchema = z.object({
   rewrittenTitle: z.string().min(1).max(200),
   rewrittenSummary: z.string().min(1).max(500),
   rewrittenContent: z.string().min(1),
+  /// Brief seccion 11 ("Puntos clave"): 2-5 frases breves, cada una debe
+  /// poder respaldarse igual que el cuerpo -- GroundingModule las trata
+  /// como texto reescrito mas para efectos de verificacion de claims.
+  keyPoints: z.array(z.string().min(1)).min(1).max(5),
+  /// Brief seccion 11 ("Por que es importante"): bloque contextual breve,
+  /// mismas reglas de la seccion 7 (nunca recomendar/diagnosticar/etc).
+  whyItMatters: z.string().min(1).max(600),
   claims: z.array(ClaimSchema),
 });
 
@@ -26,6 +33,8 @@ export const REWRITE_TOOL_JSON_SCHEMA = {
     rewrittenTitle: { type: 'string' },
     rewrittenSummary: { type: 'string' },
     rewrittenContent: { type: 'string' },
+    keyPoints: { type: 'array', items: { type: 'string' } },
+    whyItMatters: { type: 'string' },
     claims: {
       type: 'array',
       items: {
@@ -39,5 +48,5 @@ export const REWRITE_TOOL_JSON_SCHEMA = {
       },
     },
   },
-  required: ['rewrittenTitle', 'rewrittenSummary', 'rewrittenContent', 'claims'],
+  required: ['rewrittenTitle', 'rewrittenSummary', 'rewrittenContent', 'keyPoints', 'whyItMatters', 'claims'],
 } as const;

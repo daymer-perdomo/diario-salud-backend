@@ -8,6 +8,7 @@ import { computeContentHash } from '../../common/content-hash.util';
 import { HttpFetcherFactory } from '../fetchers/http-fetcher.factory';
 import { HttpFetcher } from '../fetchers/http-fetcher.interface';
 import { DomainRateLimiterService } from '../fetchers/domain-rate-limiter.service';
+import { extractDetailPageImage } from './image-extraction.util';
 
 const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse');
 
@@ -36,11 +37,41 @@ export interface HtmlScraperSourceConfig {
   /// configurado o el sitio no tiene imagen (como INVIMA, cuyo listado
   /// solo trae texto+enlace a PDF), imageUrl queda en null.
   imageSelector?: string;
+  /// Selector de la imagen dentro de la PAGINA DE DETALLE del articulo
+  /// (no la fila del listado) -- fallback usado cuando ni imageSelector
+  /// ni el <meta property="og:image"> de esa pagina traen nada (ver
+  /// enrichWithOgImage). Verificado en vivo para ADRES 2026-07-17: sus
+  /// paginas SharePoint no traen og:image, pero la imagen real del
+  /// articulo esta dentro de .ms-rtestate-field (el contenedor de texto
+  /// enriquecido) -- confirmado contra 3 articulos reales, siempre la
+  /// primera <img> de ese contenedor es la imagen del articulo, nunca un
+  /// icono/logo del sitio (esos quedan fuera de ese div). Se toma
+  /// deliberadamente distinto de "agarrar la primera <img> de toda la
+  /// pagina", que si agarraria iconos de SharePoint.
+  detailImageSelector?: string;
   pagination?: {
     nextPageSelector: string;
     maxPagesPerRun: number;
   };
+  /// Tope duro de items por corrida, aplicado tras recorrer las paginas
+  /// configuradas -- misma idea que maxItemsPerFeed en RssAdapter (ver su
+  /// comentario sobre el incidente de agotamiento de credito del
+  /// 2026-07-12). Sin este tope, un listado con muchos items en una sola
+  /// pagina (ej. ADRES: 327 en /sala-de-prensa/noticias) se ingeriria y
+  /// puntuaria con IA de una sola vez sin limite.
+  maxItemsPerRun?: number;
+  /// Ventana de recencia en dias -- filtra por dateSelector ANTES de
+  /// aplicar maxItemsPerRun, igual que maxAgeDays en RssAdapter. Antes de
+  /// esto, HTML_SCRAPE no tenia ningun filtro por fecha, solo por conteo.
+  maxAgeDays?: number;
 }
+
+/// Bajado de 30 a 3 el 2026-07-17 -- ver comentario equivalente en
+/// RssAdapter.
+const DEFAULT_MAX_ITEMS_PER_RUN = 3;
+/// Bajado de 30 a 3 el 2026-07-17 -- ver comentario equivalente en
+/// RssAdapter.
+const DEFAULT_MAX_AGE_DAYS = 3;
 
 @Injectable()
 export class HtmlScraperAdapter implements SourceAdapter {
@@ -114,9 +145,31 @@ export class HtmlScraperAdapter implements SourceAdapter {
       );
     }
 
-    await this.enrichWithDocumentText(items, fetcher, source.institutionCode);
+    // Ventana de recencia primero, tope de conteo despues -- mismo orden
+    // que RssAdapter. Source.maxAgeDays/maxItemsPerRun (configurables
+    // desde el panel) tienen prioridad sobre sus equivalentes en config.
+    const maxAgeDays = source.maxAgeDays ?? config.maxAgeDays ?? DEFAULT_MAX_AGE_DAYS;
+    const cutoffDate = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
+    const withinWindow = items.filter((item) => item.publishedAt >= cutoffDate);
 
-    return { items, nextCursor: null };
+    // Tope duro antes de gastar red/tiempo descargando documentos (PDFs)
+    // de items que de todas formas no se van a procesar. Los listados de
+    // este tipo de sitio son reverso-cronologicos, asi que quedarse con
+    // los primeros N conserva lo mas reciente.
+    const maxItems = source.maxItemsPerRun ?? config.maxItemsPerRun ?? DEFAULT_MAX_ITEMS_PER_RUN;
+    const bounded = withinWindow.slice(0, maxItems);
+    if (items.length > bounded.length) {
+      this.logger.warn(
+        `Fuente ${source.institutionCode}: ${items.length} items encontrados, ${withinWindow.length} dentro de ` +
+          `la ventana de ${maxAgeDays} dias, acotado a ${bounded.length} (maxItemsPerRun=${maxItems}) -- ` +
+          `el resto se ignora esta corrida.`,
+      );
+    }
+
+    await this.enrichWithDocumentText(bounded, fetcher, source.institutionCode);
+    await this.enrichWithDetailImage(bounded, fetcher, config, source.institutionCode);
+
+    return { items: bounded, nextCursor: null };
   }
 
   /// Si el enlace de un item apunta a un PDF, descarga y extrae su texto
@@ -141,6 +194,35 @@ export class HtmlScraperAdapter implements SourceAdapter {
         this.logger.warn(
           `No se pudo extraer texto del PDF ${item.url} (fuente ${institutionCode}): ${(err as Error).message}. ` +
             `Se conserva solo el titulo como contenido -- no se fabrica texto de relleno.`,
+        );
+      }
+    }
+  }
+
+  /// Si extractRowImageUrl no encontro nada en el listado (ej. ADRES, que
+  /// pone la imagen como CSS background-image inline en vez de <img src>
+  /// -- ver comentario del seed de esa fuente), intenta en orden: 1)
+  /// <meta property="og:image"> de la pagina de detalle real, 2) si la
+  /// fuente tiene detailImageSelector configurado (calibrado a mano
+  /// contra HTML real, ver su comentario), la primera <img> dentro de
+  /// ese selector. Ambos sobre el mismo fetch de la pagina -- no se
+  /// duplica la descarga. Se salta los PDF (no son HTML). Nunca falla la
+  /// corrida si la pagina no carga o no trae nada: se deja imageUrl=null.
+  private async enrichWithDetailImage(
+    items: RawCandidate[],
+    fetcher: HttpFetcher,
+    config: HtmlScraperSourceConfig,
+    institutionCode: string,
+  ): Promise<void> {
+    for (const item of items) {
+      if (item.imageUrl || item.url.toLowerCase().endsWith('.pdf')) continue;
+      try {
+        const html = await fetcher.fetchText(item.url);
+        item.imageUrl = extractDetailPageImage(html, item.url, config.detailImageSelector);
+      } catch (err) {
+        this.logger.warn(
+          `No se pudo obtener imagen de detalle de ${item.url} (fuente ${institutionCode}): ${(err as Error).message}. ` +
+            `Se deja sin imagen -- no se fabrica ninguna.`,
         );
       }
     }
@@ -179,10 +261,25 @@ export class HtmlScraperAdapter implements SourceAdapter {
   }
 }
 
+/// Bug real encontrado 2026-07-16 al calibrar ADRES: `new Date("d/m/aaaa")`
+/// de JS asume MM/DD/AAAA (formato US), no DD/MM/AAAA (formato usado por
+/// todos los sitios de gobierno colombianos vistos hasta ahora). Con
+/// dia<=12 esto NO lanza error, produce una fecha VALIDA pero equivocada
+/// en silencio (ej. "3/07/2026" -- 3 de julio -- se leia como 7 de marzo).
+/// Por eso el formato DD/MM/AAAA se intenta explicitamente antes de caer
+/// al parser ambiguo nativo.
 function parseFlexibleDate(text: string): Date {
   const isoMatch = text.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) {
     return new Date(Date.UTC(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3])));
+  }
+  const dmyMatch = text.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+  if (dmyMatch) {
+    const day = Number(dmyMatch[1]);
+    const month = Number(dmyMatch[2]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return new Date(Date.UTC(Number(dmyMatch[3]), month - 1, day));
+    }
   }
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;

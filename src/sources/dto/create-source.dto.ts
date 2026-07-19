@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, IsUrl, Matches } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUrl, Matches, Min } from 'class-validator';
 import { FetchMethod, SourceType } from '@prisma/client';
 
 export class CreateSourceDto {
@@ -31,6 +31,22 @@ export class CreateSourceDto {
   @IsOptional()
   @Matches(/^([0-1]?\d|2[0-3]):([0-5]\d)$/, { message: 'scheduledTime debe tener formato HH:mm (24h)' })
   scheduledTime?: string | null;
+
+  /// Tope de items nuevos por corrida, uniforme para los tres tipos de
+  /// adapter -- ver comentario en Source.maxItemsPerRun del schema.
+  /// Omitir o enviar null = usa el default propio del adapter.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxItemsPerRun?: number | null;
+
+  /// Ventana de recencia en dias (RSS y HTML_SCRAPE) -- ver comentario en
+  /// Source.maxAgeDays del schema. Omitir o enviar null = usa el default
+  /// propio del adapter.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxAgeDays?: number | null;
 
   /// Estructura validada por cada SourceAdapter en tiempo de ejecucion
   /// (no hay un DTO unico posible porque cada `type` espera una forma

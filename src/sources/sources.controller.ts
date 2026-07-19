@@ -22,6 +22,14 @@ export class SourcesController {
     return this.sourcesService.findAll();
   }
 
+  /// Antes de ':id' a proposito -- si no, Nest interpreta "stats" como un
+  /// :id literal y esta ruta nunca se alcanza.
+  @Get('stats')
+  @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
+  getStats() {
+    return this.sourcesService.getStats();
+  }
+
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
   findOne(@Param('id') id: string) {

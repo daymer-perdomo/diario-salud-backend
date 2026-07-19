@@ -1,6 +1,7 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma, PromptKey } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { SOURCE_SEED_DATA } from '../src/sources/seed-data/sources.seed-data';
+import { DEFAULT_PROMPTS } from '../src/prompts/default-prompts';
 
 const prisma = new PrismaClient();
 
@@ -23,9 +24,10 @@ async function main() {
   for (const item of SOURCE_SEED_DATA) {
     const source = await prisma.source.upsert({
       where: { institutionCode: item.institutionCode },
-      // El horario (scheduledTime/nextRunAt) NO se toca en `update`: si el
-      // seed se vuelve a correr sobre una DB existente, no debe pisar un
-      // horario que un ADMIN ya haya configurado desde el panel.
+      // El horario (scheduledTime/nextRunAt), maxItemsPerRun y maxAgeDays
+      // NO se tocan en `update`: si el seed se vuelve a correr sobre una
+      // DB existente, no debe pisar valores que un ADMIN ya haya
+      // configurado desde el panel.
       update: {
         name: item.name,
         type: item.type,
@@ -46,12 +48,25 @@ async function main() {
         isActive: item.isActive,
         scheduledTime: item.scheduledTime ?? null,
         nextRunAt: null,
+        maxItemsPerRun: item.maxItemsPerRun ?? null,
+        maxAgeDays: item.maxAgeDays ?? null,
         config: item.config as Prisma.InputJsonValue,
         createdByUserId: admin.id,
         updatedByUserId: admin.id,
       },
     });
     console.log(`Source ${source.institutionCode}: activa=${source.isActive}`);
+  }
+
+  // Solo crea la fila si no existe -- un prompt ya editado por un ADMIN
+  // desde el panel nunca se pisa en un reseed (ver PromptsService.seedDefaults).
+  for (const key of Object.values(PromptKey)) {
+    const prompt = await prisma.promptTemplate.upsert({
+      where: { key },
+      update: {},
+      create: { key, content: DEFAULT_PROMPTS[key] },
+    });
+    console.log(`Prompt ${prompt.key}: listo`);
   }
 }
 

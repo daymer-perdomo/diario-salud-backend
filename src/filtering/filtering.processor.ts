@@ -5,7 +5,7 @@ import { ArticleStateMachineService } from '../articles/article-state-machine.se
 import { ArticlesService } from '../articles/articles.service';
 import { QUEUE_NAMES, JOB_NAMES } from '../queue/queue.constants';
 import { isTerminalFailure } from '../queue/is-terminal-failure.util';
-import { isObviousJobPostingOrProcurement } from './keyword-prefilter';
+import { hasInsufficientContent, isObviousJobPostingOrProcurement } from './keyword-prefilter';
 
 interface FilterArticleJobData {
   articleId: string;
@@ -32,6 +32,16 @@ export class FilteringProcessor extends WorkerHost {
         'Pre-filtro por palabra clave: oferta de empleo o licitacion/contratacion publica',
       );
       this.logger.log(`Descartado por pre-filtro: ${article.id}`);
+      return;
+    }
+
+    if (hasInsufficientContent(article.originalTitle, article.originalContent)) {
+      await this.stateMachine.markDiscarded(
+        article.id,
+        'Pre-filtro por contenido insuficiente: la fuente no trajo texto real mas alla del titulo -- no hay ' +
+          'suficiente base para evaluar relevancia ni reescribir con criterio',
+      );
+      this.logger.log(`Descartado por contenido insuficiente: ${article.id}`);
       return;
     }
 

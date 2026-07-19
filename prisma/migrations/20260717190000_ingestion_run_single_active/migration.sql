@@ -1,0 +1,17 @@
+-- Pedido explicito del usuario 2026-07-17: nunca debe existir mas de una
+-- corrida de ingesta EN_CURSO a la vez -- una nueva debe esperar a que la
+-- anterior termine o se resuelva.
+--
+-- IngestionDispatcher.assertNoActiveRun() ya hace un chequeo previo
+-- (SELECT status='EN_CURSO') antes de crear una corrida nueva, pero eso
+-- por si solo tiene una ventana de carrera real: dos requests casi
+-- simultaneas pueden leer "no hay ninguna activa" ANTES de que cualquiera
+-- de las dos inserte su propia fila (verificado en vivo disparando dos
+-- POST /ingestion/trigger-all en paralelo -- ambas devolvieron 201). Un
+-- indice parcial UNIQUE a nivel de base de datos es la unica forma de
+-- cerrar esa ventana de verdad: Postgres rechaza el segundo INSERT con
+-- status='EN_CURSO' aunque llegue en el mismo instante que el primero.
+-- IngestionRunsService.startNow()/markRunning() atrapan esa violacion
+-- (codigo Prisma P2002) y la traducen al mismo ConflictException que ya
+-- usa el chequeo previo.
+CREATE UNIQUE INDEX "ingestion_runs_single_active_idx" ON "ingestion_runs" ("status") WHERE "status" = 'EN_CURSO';

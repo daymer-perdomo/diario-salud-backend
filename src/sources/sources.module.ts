@@ -14,6 +14,7 @@ import { SimpleHttpFetcher } from './fetchers/simple-http.fetcher';
 import { HeadlessBrowserFetcher } from './fetchers/headless-browser.fetcher';
 import { HttpFetcherFactory } from './fetchers/http-fetcher.factory';
 import { DomainRateLimiterService } from './fetchers/domain-rate-limiter.service';
+import { ArticleImageBackfillService } from './article-image-backfill.service';
 
 @Module({
   imports: [AuthModule, AuditModule],
@@ -31,7 +32,8 @@ import { DomainRateLimiterService } from './fetchers/domain-rate-limiter.service
     HtmlScraperAdapter,
     { provide: SOURCE_ADAPTERS, useFactory: (a: RssAdapter, b: OpenDataApiAdapter, c: HtmlScraperAdapter) => [a, b, c], inject: [RssAdapter, OpenDataApiAdapter, HtmlScraperAdapter] },
     AdapterFactory,
+    ArticleImageBackfillService,
   ],
-  exports: [SourceRegistryService, AdapterFactory, HttpFetcherFactory],
+  exports: [SourcesService, SourceRegistryService, AdapterFactory, HttpFetcherFactory],
 })
 export class SourcesModule {}

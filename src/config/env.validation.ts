@@ -20,16 +20,38 @@ export const envSchema = z.object({
   /// consume un sistema externo, no un usuario con cuenta.
   PUBLIC_API_KEY: z.string().min(16, 'PUBLIC_API_KEY debe tener al menos 16 caracteres'),
 
-  ANTHROPIC_API_KEY: z.string().optional().default(''),
-  ANTHROPIC_MODEL: z.string().default('claude-sonnet-5'),
+  /// Unico proveedor de IA del pipeline -- ver comentario en LlmModule
+  /// sobre por que Claude/Anthropic se retiro el 2026-07-16.
+  GEMINI_API_KEY: z.string().optional().default(''),
+  GEMINI_MODEL: z.string().default('gemini-3.1-flash-lite'),
 
-  WORDPRESS_BASE_URL: z.string().url(),
-  WORDPRESS_APP_USERNAME: z.string().optional().default(''),
-  WORDPRESS_APP_PASSWORD: z.string().optional().default(''),
-  WORDPRESS_DIARIO_SALUD_CATEGORY_ID: z.coerce.number().int().optional(),
+  /// Tope de articulos EVALUADO que RewriteSelectionService encola a
+  /// rewrite por corrida de seleccion. Ver comentario de RewriteSelectionService
+  /// -- es el freno principal contra otro agotamiento de credito como el
+  /// del 2026-07-12 (ver rss.adapter.ts): Scoring ya NO encola a rewrite
+  /// automaticamente, solo este paso lo hace, acotado a este numero.
+  DAILY_REWRITE_LIMIT: z.coerce.number().int().positive().default(5),
+
+  /// Piso de calidad para RewriteSelectionService: un articulo EVALUADO
+  /// solo avanza a rewrite/grounding/compliance si su relevanceScore
+  /// (0-1, asignado por Scoring) es >= este valor, ADEMAS de estar entre
+  /// los mejores DAILY_REWRITE_LIMIT. Si ningun EVALUADO lo alcanza ese
+  /// dia, no se selecciona nada -- no se "rellena la cuota" con contenido
+  /// de baja calidad solo para completar 5.
+  MIN_RELEVANCE_SCORE_FOR_REWRITE: z.coerce.number().min(0).max(1).default(0.5),
+
+  /// Presupuesto maximo REAL en USD para llamadas a la API de Gemini
+  /// (ver LlmBudgetService) -- pedido explicito del usuario 2026-07-16.
+  /// Se mide con los tokens reales que la API reporta en cada respuesta,
+  /// no una estimacion. Sin definir = sin limite (Infinity).
+  MAX_LLM_BUDGET_USD: z.coerce.number().positive().optional(),
 
   PORT: z.coerce.number().int().positive().default(3000),
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /// 'staging' es un ambiente real y distinto de 'production' -- probar
+  /// cambios de pipeline/schema contra una base de datos separada antes
+  /// de tocar la de produccion. Ver render.yaml (bloque
+  /// "diario-salud-backend-staging").
+  NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

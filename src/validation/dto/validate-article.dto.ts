@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsEnum, IsOptional, IsString } from 'class-validator';
 import { ValidationDecision } from '@prisma/client';
 
 export class ValidateArticleDto {
@@ -20,4 +20,13 @@ export class ValidateArticleDto {
   @IsOptional()
   @IsString()
   editedContent?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  editedKeyPoints?: string[];
+
+  @IsOptional()
+  @IsString()
+  editedWhyItMatters?: string;
 }

@@ -45,7 +45,9 @@ export class RewriteProcessor extends WorkerHost {
       rewrittenTitle: rewriteResult.rewrittenTitle,
       rewrittenSummary: rewriteResult.rewrittenSummary,
       rewrittenContent: rewriteResult.rewrittenContent,
-      rewriteModel: 'claude',
+      rewrittenKeyPoints: rewriteResult.keyPoints,
+      rewrittenWhyItMatters: rewriteResult.whyItMatters,
+      rewriteModel: 'gemini',
     });
 
     await this.groundQueue.add(

@@ -37,6 +37,36 @@ export class ValidationService {
     });
   }
 
+  /// Vista unificada para el panel (2026-07-17, pedido explicito del
+  /// usuario): union de TODOS los estados relevantes para un humano --
+  /// revision, triage, validado, rechazado y publicado -- en una sola
+  /// lista para la tabla del dashboard con filtro de Estado en el
+  /// sidebar. Deliberadamente NO incluye los estados puramente
+  /// automaticos previos a la reescritura (RECOLECTADO/DESCARTADO/
+  /// EVALUADO/REESCRITO): esos articulos todavia no tienen
+  /// rewrittenTitle/rewrittenContent, no encajan en las columnas de
+  /// esta tabla (pensada para revisar reescrituras, no el crudo
+  /// recolectado).
+  getAllForStaff() {
+    return this.prisma.article.findMany({
+      where: {
+        state: {
+          in: [
+            ArticleState.EN_VALIDACION,
+            ArticleState.GROUNDING_FALLIDO,
+            ArticleState.CUMPLIMIENTO_FALLIDO,
+            ArticleState.ERROR,
+            ArticleState.VALIDADO,
+            ArticleState.RECHAZADO,
+            ArticleState.PUBLICADO,
+          ],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { source: true },
+    });
+  }
+
   getDetail(articleId: string) {
     return this.articlesService.findById(articleId);
   }
@@ -50,26 +80,35 @@ export class ValidationService {
       editedTitle?: string;
       editedSummary?: string;
       editedContent?: string;
+      editedKeyPoints?: string[];
+      editedWhyItMatters?: string;
     },
   ) {
     return this.stateMachine.validate(articleId, { validatorId, ...params });
   }
 
   /// Boton "Regenerar" del panel (brief seccion 10.2): vuelve a encolar
-  /// la reescritura para un articulo en triage. No cambia el estado
-  /// aqui -- markRewritten (dentro de RewriteProcessor) es quien lo
-  /// hace, y solo acepta la transicion desde GROUNDING_FALLIDO /
-  /// CUMPLIMIENTO_FALLIDO / EVALUADO (ver assertState).
+  /// la reescritura para un articulo en triage O en la cola de
+  /// validacion normal (un validador que no esta conforme con la
+  /// reescritura puede pedir una nueva sin rechazar el articulo). No
+  /// cambia el estado aqui -- markRewritten (dentro de RewriteProcessor)
+  /// es quien lo hace, y solo acepta la transicion desde GROUNDING_FALLIDO
+  /// / CUMPLIMIENTO_FALLIDO / EVALUADO / EN_VALIDACION (ver assertState).
   async regenerate(articleId: string) {
     const article = await this.articlesService.findById(articleId);
     // ERROR se deja fuera a proposito: puede haber fallado en cualquier
     // etapa (no necesariamente reescritura) y no tiene un "siguiente
     // paso" unico -- requiere que un humano revise errorStage/
     // lastErrorMessage y decida, no un boton generico de regenerar.
-    const regenerableStates: ArticleState[] = [ArticleState.GROUNDING_FALLIDO, ArticleState.CUMPLIMIENTO_FALLIDO];
+    const regenerableStates: ArticleState[] = [
+      ArticleState.GROUNDING_FALLIDO,
+      ArticleState.CUMPLIMIENTO_FALLIDO,
+      ArticleState.EN_VALIDACION,
+    ];
     if (!regenerableStates.includes(article.state)) {
       throw new BadRequestException(
-        `Article ${articleId} esta en ${article.state}, solo se puede regenerar desde GROUNDING_FALLIDO o CUMPLIMIENTO_FALLIDO`,
+        `Article ${articleId} esta en ${article.state}, solo se puede regenerar desde GROUNDING_FALLIDO, ` +
+          `CUMPLIMIENTO_FALLIDO o EN_VALIDACION`,
       );
     }
 

@@ -21,8 +21,23 @@ interface OpenDataApiSourceConfig {
   apiUrls: string[];
   order: string; // p.ej. "ano DESC, semana DESC"
   limit?: number;
+  maxAgeDays?: number;
   datasetLandingUrl: string; // pagina publica del dataset, para trazabilidad legible
 }
+
+/// Agregado 2026-07-17 (pedido explicito del usuario): este adapter NO
+/// filtraba por fecha -- a diferencia de RssAdapter/HtmlScraperAdapter,
+/// que siempre tuvieron una ventana de recencia, aqui se pedian las N
+/// filas mas recientes del dataset sin verificar que fueran realmente
+/// recientes. Con SIVIGILA en particular esto importa mucho: el dataset
+/// nacional agregado mas reciente en datos.gov.co es de 2021 (ver notas
+/// de la fuente INS en sources.seed-data.ts) -- sin este filtro se
+/// gastaba IA evaluando "noticias" de hace años. Mismo default que los
+/// otros adapters.
+const DEFAULT_MAX_AGE_DAYS = 3;
+/// Tope final tras el filtro de fecha -- mismo default que RssAdapter/
+/// HtmlScraperAdapter (ver sus comentarios equivalentes).
+const DEFAULT_MAX_ITEMS_PER_RUN = 3;
 
 interface SivigilaRow {
   cod_eve: string;
@@ -50,6 +65,11 @@ export class OpenDataApiAdapter implements SourceAdapter {
     const fetcher = this.fetcherFactory.get(source.fetchMethod ?? FetchMethod.HTTP_SIMPLE);
     const items: RawCandidate[] = [];
     const errors: string[] = [];
+    // Tamano de la consulta a Socrata -- deliberadamente independiente de
+    // Source.maxItemsPerRun (2026-07-17): ese campo ahora es el tope FINAL
+    // de items a conservar tras el filtro de fecha (ver mas abajo), no el
+    // tamano del pool candidato. Pedir un pool generoso aqui deja margen
+    // para que el filtro de recencia tenga de donde elegir.
     const limit = config.limit ?? 200;
 
     for (const apiUrl of config.apiUrls) {
@@ -99,7 +119,31 @@ export class OpenDataApiAdapter implements SourceAdapter {
       throw new Error(`Todos los endpoints de ${source.institutionCode} fallaron: ${errors.join(' | ')}`);
     }
 
-    return { items, nextCursor: null };
+    // Ventana de recencia, mismo criterio que RssAdapter/HtmlScraperAdapter
+    // -- Source.maxAgeDays (configurable desde el panel) tiene prioridad
+    // sobre config.maxAgeDays.
+    const maxAgeDays = source.maxAgeDays ?? config.maxAgeDays ?? DEFAULT_MAX_AGE_DAYS;
+    const cutoffDate = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
+    const withinWindow = items
+      .filter((item) => item.publishedAt >= cutoffDate)
+      .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+
+    // Tope final tras el filtro de fecha, mismo criterio que
+    // RssAdapter/HtmlScraperAdapter (2026-07-17): solo se conservan las
+    // maxItemsPerRun filas mas recientes -- aqui es donde Source.maxItemsPerRun
+    // realmente aplica (ver comentario arriba sobre el tamano de la consulta).
+    const maxItemsToKeep = source.maxItemsPerRun ?? DEFAULT_MAX_ITEMS_PER_RUN;
+    const bounded = withinWindow.slice(0, maxItemsToKeep);
+
+    if (items.length > bounded.length) {
+      this.logger.warn(
+        `Fuente ${source.institutionCode}: ${items.length} filas obtenidas, ${withinWindow.length} dentro de ` +
+          `la ventana de ${maxAgeDays} dias, acotado a ${bounded.length} (maxItemsPerRun=${maxItemsToKeep}) -- ` +
+          `el resto se descarta, no se procesa con IA.`,
+      );
+    }
+
+    return { items: bounded, nextCursor: null };
   }
 }
 

@@ -4,10 +4,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { RawCandidate } from '../sources/interfaces/raw-candidate.interface';
 import { QueryApprovedArticlesDto } from './dto/query-approved-articles.dto';
+import { detectLanguage } from '../common/language-detection.util';
 
 /// Estados que puede tener un articulo aprobado por un revisor humano:
-/// VALIDADO (aprobado, aun no publicado en WordPress) o PUBLICADO
-/// (aprobado y ya publicado). RECHAZADO y todo lo demas nunca entra aqui.
+/// VALIDADO (aprobado, aun no expuesto en la API publica) o PUBLICADO
+/// (aprobado y ya expuesto). RECHAZADO y todo lo demas nunca entra aqui.
 const APPROVED_STATES: ArticleState[] = [ArticleState.VALIDADO, ArticleState.PUBLICADO];
 
 /// Forma de salida de la API publica -- deliberadamente mas angosta que el
@@ -18,13 +19,15 @@ export interface PublicArticle {
   title: string;
   summary: string | null;
   content: string;
+  keyPoints: string[];
+  whyItMatters: string | null;
   imageUrl: string | null;
   riskLevel: string | null;
+  contentType: string | null;
   state: ArticleState;
   source: { institutionCode: string; name: string; url: string; publishedAt: Date };
   validatedAt: Date | null;
   publishedAt: Date | null;
-  wordpressPostId: number | null;
 }
 
 @Injectable()
@@ -41,6 +44,21 @@ export class ArticlesService {
 
   findByState(state: ArticleState) {
     return this.prisma.article.findMany({ where: { state }, orderBy: { createdAt: 'asc' } });
+  }
+
+  /// Usado por RewriteSelectionService: candidatos EVALUADO (ya puntuados
+  /// por IA, aun no encolados a rewrite), mejor relevanceScore primero.
+  /// Es el unico lugar que decide "los mejores N" -- Scoring ya no
+  /// encola automaticamente (ver comentario en ScoringProcessor).
+  /// minScore es un piso duro: un articulo por debajo no se selecciona
+  /// aunque sobren cupos en `limit` -- no se "rellena la cuota" con
+  /// contenido de baja calidad.
+  findTopEvaluatedByRelevance(limit: number, minScore: number) {
+    return this.prisma.article.findMany({
+      where: { state: ArticleState.EVALUADO, relevanceScore: { gte: minScore } },
+      orderBy: { relevanceScore: 'desc' },
+      take: limit,
+    });
   }
 
   /// Crea la fila RECOLECTADO con toda la procedencia obligatoria. Si ya
@@ -67,6 +85,7 @@ export class ArticlesService {
           originalContent: candidate.rawText,
           originalContentHash: candidate.contentHash,
           imageUrl: candidate.imageUrl,
+          language: detectLanguage(`${candidate.title} ${candidate.rawText}`),
           state: ArticleState.RECOLECTADO,
         },
       });
@@ -137,8 +156,11 @@ export class ArticlesService {
       title: article.rewrittenTitle ?? article.originalTitle,
       summary: article.rewrittenSummary,
       content: article.rewrittenContent ?? '',
+      keyPoints: article.rewrittenKeyPoints,
+      whyItMatters: article.rewrittenWhyItMatters,
       imageUrl: article.imageUrl,
       riskLevel: article.riskLevel,
+      contentType: article.contentType,
       state: article.state,
       source: {
         institutionCode: article.source.institutionCode,
@@ -148,7 +170,6 @@ export class ArticlesService {
       },
       validatedAt: article.validatedAt,
       publishedAt: article.publishedAt,
-      wordpressPostId: article.wordpressPostId,
     };
   }
 }

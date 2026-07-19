@@ -1,0 +1,366 @@
+      <p class="section-title">Artículos</p>
+      <p class="section-sub">Vista unificada de todo lo que ya pasó por reescritura de IA -- revisión, triage, validados, rechazados y publicados. Filtrá por estado desde el sidebar.</p>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Corridas de ingesta</span>
+          <button class="btn btn-secondary btn-sm" @click="loadRuns()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Actualizar
+          </button>
+        </div>
+
+        <div x-show="me?.role === 'ADMIN' || me?.role === 'EDITOR'" class="inline-form">
+          <button class="btn btn-primary btn-sm" @click="triggerAllSources()" :disabled="triggerBusy" title="Ingiere de inmediato todas las fuentes activas">
+            <span x-show="triggerBusy" class="spin"></span>
+            <span x-text="triggerBusy ? 'Consultando...' : 'Correr ahora'"></span>
+          </button>
+
+          <div class="field">
+            <label class="label">Programar corrida</label>
+            <input type="datetime-local" class="input" x-model="scheduleAt" />
+          </div>
+          <button class="btn btn-secondary btn-sm" @click="scheduleRun()" :disabled="scheduleBusy || !scheduleAt">
+            <span x-show="scheduleBusy" class="spin dark"></span>
+            Programar
+          </button>
+        </div>
+
+        <div x-show="me?.role === 'ADMIN' || me?.role === 'EDITOR'" class="inline-form">
+          <button class="btn btn-secondary btn-sm" @click="selectTopNow()" :disabled="selectTopBusy" title="Envía los mejores artículos EVALUADO a reescritura/verificación/cumplimiento (gasta créditos de IA)">
+            <span x-show="selectTopBusy" class="spin dark"></span>
+            <span x-text="selectTopBusy ? 'Seleccionando...' : 'Seleccionar mejores ahora'"></span>
+          </button>
+          <span class="muted" style="font-size:var(--fs-xs);">También se dispara sola al terminar una corrida de "Correr ahora".</span>
+        </div>
+
+        <div x-show="runsLoading" class="loader"><span class="spin dark"></span></div>
+        <div x-show="!runsLoading && !runs.length" class="empty"><p>Aún no hay corridas registradas</p></div>
+        <div x-show="!runsLoading && runs.length">
+          <template x-for="run in paginatedRuns()" :key="run.id">
+            <div class="article-row" style="cursor:default;">
+              <div class="article-row-head">
+                <div style="min-width:0;flex:1;">
+                  <div class="flex items-center gap-2">
+                    <span class="badge" :class="runStatusBadge(run.status)" x-text="runStatusLabel(run.status)"></span>
+                    <span class="muted" style="font-size:var(--fs-xs);" x-text="run.triggerType === 'SCHEDULED' ? 'Automática' : 'Manual'"></span>
+                  </div>
+                  <div class="article-meta">
+                    <span x-show="run.status === 'PROGRAMADO'" x-text="`Programada para ${formatDateTime(run.startedAt)}`"></span>
+                    <span x-show="run.status !== 'PROGRAMADO'" x-text="`Inicio: ${formatDateTime(run.startedAt)} · Fin: ${run.status === 'EN_CURSO' ? 'en curso' : formatDateTime(run.finishedAt)}`"></span>
+                    <span x-show="run.sourceCodes?.length" x-text="` · ${run.sourceCodes.length} fuente(s)`"></span>
+                  </div>
+                </div>
+                <button
+                  x-show="run.status === 'PROGRAMADO' && (me?.role === 'ADMIN' || me?.role === 'EDITOR')"
+                  class="btn btn-danger btn-sm"
+                  @click="cancelRun(run)"
+                  :disabled="run._busy"
+                >
+                  <span x-show="run._busy" class="spin"></span>
+                  Cancelar
+                </button>
+              </div>
+
+              <!-- Paso a paso (2026-07-17, pedido explicito del usuario:
+                   ver que fuente se esta consultando en este momento) --
+                   solo mientras la corrida esta EN_CURSO, se actualiza
+                   solo via el polling de pollPipelineStatus (cada 3s). -->
+              <div x-show="run.status === 'EN_CURSO' && run.sources?.length" class="run-steps">
+                <template x-for="rs in run.sources" :key="rs.id">
+                  <div class="run-step" :class="'run-step-' + rs.status.toLowerCase()">
+                    <span class="run-step-icon">
+                      <span x-show="rs.status === 'EN_CURSO'" class="spin dark"></span>
+                      <svg x-show="rs.status === 'COMPLETADO'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                      <svg x-show="rs.status === 'ERROR'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      <span x-show="rs.status === 'PENDIENTE'" class="run-step-dot"></span>
+                    </span>
+                    <span class="run-step-name" x-text="rs.institutionCode"></span>
+                    <span class="run-step-status muted" x-text="runSourceLabel(rs.status)"></span>
+                    <span x-show="runSourceDetail(rs)" class="run-step-detail muted" x-text="runSourceDetail(rs)"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Paginacion (2026-07-17, pedido explicito del usuario: no mas
+             de 5 corridas a la vez). -->
+        <div x-show="!runsLoading && runs.length > runsPageSize" class="pagination">
+          <span class="muted" x-text="`Mostrando ${(runsPage - 1) * runsPageSize + 1}–${Math.min(runsPage * runsPageSize, runs.length)} de ${runs.length}`"></span>
+          <div class="flex gap-2 items-center">
+            <button class="btn btn-secondary btn-sm" @click="goToRunsPage(runsPage - 1)" :disabled="runsPage <= 1">Anterior</button>
+            <span class="muted" x-text="`Página ${runsPage} de ${runsTotalPages()}`"></span>
+            <button class="btn btn-secondary btn-sm" @click="goToRunsPage(runsPage + 1)" :disabled="runsPage >= runsTotalPages()">Siguiente</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+            <span class="card-title" x-text="`${filteredArticles().length} artículo${filteredArticles().length !== 1 ? 's' : ''}`"></span>
+            <span class="badge badge-gray" x-text="articleFilterLabel(articleStateFilter)"></span>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click="loadAllArticles()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Actualizar
+          </button>
+        </div>
+
+        <div x-show="articlesLoading" class="loader"><span class="spin dark"></span></div>
+
+        <div x-show="!articlesLoading && !filteredArticles().length" class="empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <p>No hay artículos en este filtro</p>
+        </div>
+
+        <!-- Publicados: vista editorial tipo revista, no tabla -- lo que ya
+             esta en el sitio se muestra como se leeria, no como una fila
+             administrativa mas. -->
+        <div x-show="!articlesLoading && filteredArticles().length && articleStateFilter === 'publicado'" class="pub-grid">
+          <template x-for="a in paginatedArticles()" :key="a.id">
+            <article class="pub-card" :class="{ 'is-expanded': a._open }" @click="a._open = !a._open">
+              <div class="pub-card-image" :class="{ 'no-image': !a.imageUrl }">
+                <img x-show="a.imageUrl" :src="a.imageUrl" alt="" loading="lazy" />
+                <span x-show="!a.imageUrl" class="pub-card-image-fallback" x-text="a.sourceInstitution"></span>
+                <span class="badge pub-card-risk" :class="riskBadge(a.riskLevel)" x-text="a.riskLevel || '—'"></span>
+              </div>
+              <div class="pub-card-body">
+                <div class="pub-card-eyebrow">
+                  <span x-text="a.sourceInstitution"></span>
+                  <span x-show="a.contentType"> · </span>
+                  <span x-show="a.contentType" x-text="a.contentType"></span>
+                </div>
+                <h3 class="pub-card-title" x-text="a.rewrittenTitle"></h3>
+                <p class="pub-card-summary" x-text="a.rewrittenSummary"></p>
+                <div class="pub-card-meta">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <span x-text="`Publicado ${formatDateTime(a.publishedAt)}`"></span>
+                </div>
+
+                <div x-show="a._open" @click.stop class="pub-card-expanded">
+                  <template x-if="a.rewrittenKeyPoints?.length">
+                    <ul class="article-detail-text" style="max-height:none;">
+                      <template x-for="p in a.rewrittenKeyPoints"><li x-text="p"></li></template>
+                    </ul>
+                  </template>
+                  <p class="pub-card-content" x-text="a.rewrittenContent"></p>
+                  <template x-if="a.rewrittenWhyItMatters">
+                    <div>
+                      <div class="article-detail-label">Por qué es importante</div>
+                      <p class="pub-card-content" x-text="a.rewrittenWhyItMatters"></p>
+                    </div>
+                  </template>
+                  <a class="btn btn-secondary btn-sm" :href="a.sourceUrl" target="_blank" rel="noopener" @click.stop style="text-decoration:none;">Ver fuente original</a>
+                </div>
+
+                <button class="pub-card-toggle" @click.stop="a._open = !a._open">
+                  <span x-text="a._open ? 'Ver menos' : 'Leer artículo completo'"></span>
+                  <svg class="chevron" :class="{ open: a._open }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+              </div>
+            </article>
+          </template>
+        </div>
+
+        <div x-show="!articlesLoading && filteredArticles().length && articleStateFilter !== 'publicado'" class="table-scroll table-wide">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Fuente</th>
+                <th style="white-space:nowrap;">Fecha</th>
+                <th>Título original</th>
+                <th>Título reescrito</th>
+                <th>Resumen reescrito</th>
+                <th>Pertinencia</th>
+                <th>Riesgo</th>
+                <th>Fidelidad</th>
+                <th>Cumplimiento</th>
+                <th>URL fuente</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <template x-for="a in paginatedArticles()" :key="a.id">
+              <tbody>
+                <tr style="cursor:pointer;" @click="a._open = !a._open">
+                  <td>
+                    <div class="flex items-center gap-2">
+                      <svg class="chevron" :class="{ open: a._open }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                      <div>
+                        <strong x-text="a.sourceInstitution"></strong>
+                        <div class="text-mono muted" x-text="a.source?.institutionCode || ''"></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style="white-space:nowrap;">
+                    <div x-text="formatDateOnly(a.sourcePublishedAt)"></div>
+                    <div class="muted" style="font-size:11px;" x-text="formatTimeOnly(a.sourcePublishedAt)"></div>
+                  </td>
+                  <td style="max-width:220px;"><div class="truncate" :title="a.originalTitle" x-text="a.originalTitle"></div></td>
+                  <td style="max-width:220px;"><div class="truncate" :title="a.rewrittenTitle" x-text="a.rewrittenTitle || '—'"></div></td>
+                  <td style="max-width:260px;"><div class="truncate" :title="a.rewrittenSummary" x-text="a.rewrittenSummary || '—'"></div></td>
+                  <td x-text="a.relevanceScore != null ? a.relevanceScore.toFixed(2) : '—'"></td>
+                  <td><span class="badge" :class="riskBadge(a.riskLevel)" x-text="a.riskLevel || '—'"></span></td>
+                  <td><span class="badge" :class="checkBadge(a.groundingStatus)" x-text="a.groundingStatus || '—'"></span></td>
+                  <td><span class="badge" :class="checkBadge(a.complianceStatus)" x-text="a.complianceStatus || '—'"></span></td>
+                  <td><a :href="a.sourceUrl" target="_blank" rel="noopener" class="muted" @click.stop>Ver enlace</a></td>
+                  <td><span class="badge" :class="stateBadge(a.state)" x-text="articleStateLabel(a.state)"></span></td>
+                  <td @click.stop>
+                    <div class="flex gap-2" style="flex-wrap:wrap;">
+                      <template x-if="a.state === 'EN_VALIDACION' && a.riskLevel === 'BAJO'">
+                        <button class="btn btn-primary btn-sm" @click="validateArticle(a, 'VALIDADO')" :disabled="a._busy" title="Validación rápida (riesgo bajo)">Aprobar rápido</button>
+                      </template>
+                      <template x-if="a.state === 'EN_VALIDACION'">
+                        <button class="btn btn-danger btn-sm" @click="validateArticle(a, 'RECHAZADO')" :disabled="a._busy">Rechazar</button>
+                      </template>
+                      <template x-if="['GROUNDING_FALLIDO','CUMPLIMIENTO_FALLIDO','ERROR'].includes(a.state)">
+                        <button class="btn btn-primary btn-sm" @click="regenerate(a)" :disabled="a._busy || a.state === 'ERROR'" :title="a.state === 'ERROR' ? 'Un error técnico requiere revisión manual' : ''">Regenerar</button>
+                      </template>
+                      <template x-if="a.state === 'VALIDADO'">
+                        <button class="btn btn-primary btn-sm" @click="publishArticle(a)" :disabled="a._busy">Publicar</button>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+
+                <tr x-show="a._open" @click.stop>
+                  <td colspan="12" style="background:var(--panel-soft);">
+                    <div class="article-detail" style="margin-top:0;border-top:none;padding-top:4px;">
+                      <div x-show="a.imageUrl">
+                        <div class="article-detail-label">Imagen de la fuente</div>
+                        <img :src="a.imageUrl" alt="" style="max-width:320px;max-height:220px;border-radius:8px;display:block;margin-bottom:12px;object-fit:cover;" />
+                      </div>
+
+                      <template x-if="a.state === 'ERROR'">
+                        <div>
+                          <div class="article-detail-label">Etapa donde falló</div>
+                          <p class="mb-3" x-text="a.errorStage"></p>
+                          <div class="article-detail-label">Mensaje</div>
+                          <div class="report-box" x-text="a.lastErrorMessage"></div>
+                        </div>
+                      </template>
+                      <template x-if="a.state === 'GROUNDING_FALLIDO'">
+                        <div>
+                          <div class="article-detail-label">Reporte de fidelidad</div>
+                          <div class="report-box" x-text="JSON.stringify(a.groundingReport, null, 2)"></div>
+                        </div>
+                      </template>
+                      <template x-if="a.state === 'CUMPLIMIENTO_FALLIDO'">
+                        <div>
+                          <div class="article-detail-label">Reporte de cumplimiento</div>
+                          <div class="report-box" x-text="JSON.stringify(a.complianceReport, null, 2)"></div>
+                        </div>
+                      </template>
+
+                      <template x-if="a.state === 'EN_VALIDACION'">
+                        <div>
+                          <div class="article-detail-label">Título reescrito (editable)</div>
+                          <input type="text" class="input" x-model="a._editedTitle" />
+                        </div>
+                      </template>
+                      <template x-if="a.state !== 'EN_VALIDACION'">
+                        <div>
+                          <div class="article-detail-label">Título reescrito</div>
+                          <div class="article-detail-text" style="max-height:none;" x-text="a.rewrittenTitle || '—'"></div>
+                        </div>
+                      </template>
+
+                      <template x-if="a.rewrittenSummary">
+                        <div>
+                          <div class="article-detail-label">Resumen reescrito</div>
+                          <div class="article-detail-text" style="max-height:none;" x-text="a.rewrittenSummary"></div>
+                        </div>
+                      </template>
+
+                      <template x-if="a.rewrittenKeyPoints?.length">
+                        <div>
+                          <div class="article-detail-label">Puntos clave</div>
+                          <ul class="article-detail-text" style="max-height:none;">
+                            <template x-for="p in a.rewrittenKeyPoints"><li x-text="p"></li></template>
+                          </ul>
+                        </div>
+                      </template>
+
+                      <template x-if="a.state === 'EN_VALIDACION'">
+                        <div>
+                          <div class="article-detail-label">Contenido reescrito (editable)</div>
+                          <textarea class="input textarea" style="min-height:220px;" x-model="a._editedContent"></textarea>
+                        </div>
+                      </template>
+                      <template x-if="a.state !== 'EN_VALIDACION' && a.rewrittenContent">
+                        <div>
+                          <div class="article-detail-label">Contenido reescrito</div>
+                          <div class="article-detail-text" style="max-height:none;white-space:pre-wrap;" x-text="a.rewrittenContent"></div>
+                        </div>
+                      </template>
+
+                      <template x-if="a.rewrittenWhyItMatters">
+                        <div>
+                          <div class="article-detail-label">Por qué es importante</div>
+                          <div class="article-detail-text" style="max-height:none;" x-text="a.rewrittenWhyItMatters"></div>
+                        </div>
+                      </template>
+
+                      <template x-if="a.validatedAt">
+                        <div>
+                          <div class="article-detail-label">Validación</div>
+                          <div class="article-detail-text" style="max-height:none;">
+                            <span x-text="a.validationDecision"></span> el <span x-text="formatDateTime(a.validatedAt)"></span>
+                            <template x-if="a.validationNotes"> — <span x-text="a.validationNotes"></span></template>
+                          </div>
+                        </div>
+                      </template>
+
+                      <div class="flex gap-2 mt-4" style="flex-wrap:wrap;">
+                        <template x-if="a.state === 'EN_VALIDACION'">
+                          <button class="btn btn-primary btn-sm" @click="validateArticle(a, 'VALIDADO')" :disabled="a._busy">
+                            <span x-show="a._busy" class="spin"></span>
+                            Aprobar
+                          </button>
+                        </template>
+                        <template x-if="a.state === 'EN_VALIDACION'">
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            @click="validateArticle(a, 'EDITADO_Y_VALIDADO')"
+                            :disabled="a._busy || (a._editedContent === a.rewrittenContent && a._editedTitle === a.rewrittenTitle)"
+                          >
+                            Guardar edición y validar
+                          </button>
+                        </template>
+                        <template x-if="a.state === 'EN_VALIDACION'">
+                          <button class="btn btn-danger btn-sm" @click="validateArticle(a, 'RECHAZADO')" :disabled="a._busy">Rechazar</button>
+                        </template>
+                        <template x-if="['EN_VALIDACION','GROUNDING_FALLIDO','CUMPLIMIENTO_FALLIDO'].includes(a.state)">
+                          <button class="btn btn-secondary btn-sm" @click="regenerate(a)" :disabled="a._busy" title="Descarta esta reescritura y pide una nueva a la IA">Regenerar</button>
+                        </template>
+                        <template x-if="a.state === 'VALIDADO'">
+                          <button class="btn btn-primary btn-sm" @click="publishArticle(a)" :disabled="a._busy">
+                            <span x-show="a._busy" class="spin"></span>
+                            Publicar
+                          </button>
+                        </template>
+                        <a class="btn btn-secondary btn-sm" :href="a.sourceUrl" target="_blank" rel="noopener" style="text-decoration:none;">Ver fuente original</a>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </template>
+          </table>
+        </div>
+
+        <!-- Paginacion (2026-07-17, pedido explicito del usuario: no mas
+             de 10 por pagina) -- sirve para la tabla y para las tarjetas
+             de Publicados, las dos leen de paginatedArticles(). -->
+        <div x-show="!articlesLoading && filteredArticles().length > articlesPageSize" class="pagination">
+          <span class="muted" x-text="`Mostrando ${(articlesPage - 1) * articlesPageSize + 1}–${Math.min(articlesPage * articlesPageSize, filteredArticles().length)} de ${filteredArticles().length}`"></span>
+          <div class="flex gap-2 items-center">
+            <button class="btn btn-secondary btn-sm" @click="goToPage(articlesPage - 1)" :disabled="articlesPage <= 1">Anterior</button>
+            <span class="muted" x-text="`Página ${articlesPage} de ${totalPages()}`"></span>
+            <button class="btn btn-secondary btn-sm" @click="goToPage(articlesPage + 1)" :disabled="articlesPage >= totalPages()">Siguiente</button>
+          </div>
+        </div>
+      </div>

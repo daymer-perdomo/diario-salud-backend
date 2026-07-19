@@ -18,12 +18,6 @@ export class PublishController {
     return this.publishService.getPublishQueue();
   }
 
-  @Post(':id/draft')
-  @Roles(UserRole.ADMIN, UserRole.VALIDATOR)
-  createDraft(@Param('id') id: string) {
-    return this.publishService.createDraft(id);
-  }
-
   @Post(':id/publish')
   @Roles(UserRole.ADMIN, UserRole.VALIDATOR)
   publish(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
