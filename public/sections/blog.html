@@ -1,0 +1,156 @@
+      <p class="section-title">Blog</p>
+      <p class="section-sub">Redacción de los artículos de blog general de salud planificados en el Excel maestro (independiente de Diario de la Salud). Cada fila trae su título, sus H2 obligatorios y sus FAQs reales -- acá se escribe el contenido antes de pasar a relectura y validación médica.</p>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+            <span class="card-title" x-text="`${blogMeta.total} post${blogMeta.total !== 1 ? 's' : ''}`"></span>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click="loadBlogPosts()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Actualizar
+          </button>
+        </div>
+
+        <div class="inline-form">
+          <div class="field">
+            <label class="label">Hub</label>
+            <select class="input" x-model="blogHubFilter" @change="blogPage = 1; loadBlogPosts()">
+              <option value="">Todos</option>
+              <template x-for="h in blogHubs" :key="h">
+                <option :value="h" x-text="h"></option>
+              </template>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label">Estado de redacción</label>
+            <select class="input" x-model="blogDraftFilter" @change="blogPage = 1; loadBlogPosts()">
+              <option value="">Todos</option>
+              <option value="PENDIENTE_REDACCION">Pendiente de redacción</option>
+              <option value="EN_REDACCION">En redacción</option>
+              <option value="REDACTADO">Redactado</option>
+            </select>
+          </div>
+        </div>
+
+        <div x-show="blogPostsLoading" class="loader"><span class="spin dark"></span></div>
+
+        <div x-show="!blogPostsLoading && !blogPosts.length" class="empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <p>No hay posts en este filtro</p>
+        </div>
+
+        <div x-show="!blogPostsLoading && blogPosts.length" class="table-scroll table-wide">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Hub</th>
+                <th>Título</th>
+                <th>Prioridad SEO</th>
+                <th>Nivel regulatorio</th>
+                <th>Secciones / FAQs</th>
+                <th>Estado de redacción</th>
+              </tr>
+            </thead>
+            <template x-for="post in blogPosts" :key="post.id">
+              <tbody>
+                <tr style="cursor:pointer;" @click="openBlogPost(post)">
+                  <td>
+                    <div class="flex items-center gap-2">
+                      <svg class="chevron" :class="{ open: post._open }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                      <div>
+                        <strong x-text="post.hub"></strong>
+                        <div class="text-mono muted" x-text="post.subHub || ''"></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style="max-width:280px;"><div class="truncate" :title="post.title" x-text="post.title"></div></td>
+                  <td x-text="post.seoPriority || '—'"></td>
+                  <td x-text="post.regulatoryLevel || '—'"></td>
+                  <td x-text="`${post._count?.sections ?? 0} H2 · ${post._count?.faqs ?? 0} FAQ`"></td>
+                  <td><span class="badge" :class="blogDraftStatusBadge(post.draftStatus)" x-text="blogDraftStatusLabel(post.draftStatus)"></span></td>
+                </tr>
+
+                <tr x-show="post._open" @click.stop>
+                  <td colspan="6" style="background:var(--panel-soft);">
+                    <div class="article-detail" style="margin-top:0;border-top:none;padding-top:4px;">
+
+                      <div x-show="post._detailBusy" class="loader"><span class="spin dark"></span></div>
+
+                      <template x-if="!post._detailBusy">
+                        <div>
+                          <div class="article-detail-label">Reglas y guardarraíles (solo lectura, vienen del Excel)</div>
+                          <div class="report-box">
+Cluster: <span x-text="post.cluster || '—'"></span> · Tag principal: <span x-text="post.tagPrincipal || '—'"></span> · Tags secundarios: <span x-text="(post.tagsSecondary || []).join(', ') || '—'"></span>
+Intención: <span x-text="post.intention || '—'"></span> · Política de productos: <span x-text="post.productPolicy || '—'"></span> · Validación requerida: <span x-text="post.validationRequired || '—'"></span>
+Regla de generación IA: <span x-text="post.aiGenerationRule || '—'"></span>
+Notas: <span x-text="post.notes || '—'"></span>
+                          </div>
+
+                          <div class="article-detail-label">Título (editable)</div>
+                          <input type="text" class="input mb-3" x-model="post._editedTitle" />
+
+                          <div class="article-detail-label">Slug (editable)</div>
+                          <input type="text" class="input mb-3" x-model="post._editedSlug" />
+
+                          <div class="article-detail-label">Secciones (un H2 obligatorio por cuadro)</div>
+                          <template x-for="section in post.sections" :key="section.id">
+                            <div class="mb-3" style="background:#fff;border:1px solid var(--line);border-radius:11px;padding:12px 14px;">
+                              <div class="flex items-center justify-between mb-3">
+                                <strong x-text="section.heading"></strong>
+                                <button class="btn btn-secondary btn-sm" @click="saveBlogSection(post, section)" :disabled="section._busy || section._editedBody === (section.body || '')">
+                                  <span x-show="section._busy" class="spin dark"></span>
+                                  Guardar sección
+                                </button>
+                              </div>
+                              <textarea class="input textarea" placeholder="Redactar este H2..." x-model="section._editedBody"></textarea>
+                            </div>
+                          </template>
+
+                          <div class="article-detail-label mt-4">FAQs (preguntas reales de AlsoAsked)</div>
+                          <template x-for="faq in post.faqs" :key="faq.id">
+                            <div class="mb-3" style="background:#fff;border:1px solid var(--line);border-radius:11px;padding:12px 14px;">
+                              <div class="flex items-center justify-between mb-3">
+                                <strong x-text="faq.question"></strong>
+                                <button class="btn btn-secondary btn-sm" @click="saveBlogFaq(post, faq)" :disabled="faq._busy || faq._editedAnswer === (faq.answer || '')">
+                                  <span x-show="faq._busy" class="spin dark"></span>
+                                  Guardar FAQ
+                                </button>
+                              </div>
+                              <textarea class="input textarea" placeholder="Redactar la respuesta..." x-model="faq._editedAnswer"></textarea>
+                            </div>
+                          </template>
+
+                          <div class="flex gap-2 mt-4 items-center" style="flex-wrap:wrap;">
+                            <div class="field" style="margin-bottom:0;min-width:220px;">
+                              <label class="label">Estado de redacción</label>
+                              <select class="input" x-model="post._editedDraftStatus">
+                                <option value="PENDIENTE_REDACCION">Pendiente de redacción</option>
+                                <option value="EN_REDACCION">En redacción</option>
+                                <option value="REDACTADO">Redactado</option>
+                              </select>
+                            </div>
+                            <button class="btn btn-primary btn-sm" @click="saveBlogPost(post)" :disabled="post._saveBusy">
+                              <span x-show="post._saveBusy" class="spin"></span>
+                              Guardar post
+                            </button>
+                          </div>
+                        </div>
+                      </template>
+
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </template>
+          </table>
+        </div>
+
+        <div x-show="!blogPostsLoading && blogMeta.totalPages > 1" class="pagination">
+          <span class="muted" x-text="`Página ${blogPage} de ${blogMeta.totalPages} (${blogMeta.total} en total)`"></span>
+          <div class="flex gap-2 items-center">
+            <button class="btn btn-secondary btn-sm" @click="goToBlogPage(blogPage - 1)" :disabled="blogPage <= 1">Anterior</button>
+            <button class="btn btn-secondary btn-sm" @click="goToBlogPage(blogPage + 1)" :disabled="blogPage >= blogMeta.totalPages">Siguiente</button>
+          </div>
+        </div>
+      </div>

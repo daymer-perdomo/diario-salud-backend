@@ -183,10 +183,10 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  createdSources        Source[]  @relation("SourceCreatedBy")
-  updatedSources        Source[]  @relation("SourceUpdatedBy")
-  validatedArticles      Article[] @relation("ArticleValidator")
-  publishedArticles      Article[] @relation("ArticlePublishedBy")
+  createdSources         Source[]       @relation("SourceCreatedBy")
+  updatedSources         Source[]       @relation("SourceUpdatedBy")
+  validatedArticles      Article[]      @relation("ArticleValidator")
+  publishedArticles      Article[]      @relation("ArticlePublishedBy")
   scheduledIngestionRuns IngestionRun[] @relation("IngestionRunCreatedBy")
 
   @@map("users")
@@ -197,30 +197,30 @@ model User {
 /// solo leen via SourceRegistryService. Ningun Article puede existir sin un
 /// sourceId valido que apunte a una fila de esta tabla (whitelist estructural).
 model Source {
-  id                  String      @id @default(uuid())
-  institutionCode     String      @unique
-  name                String
-  type                SourceType
-  baseUrl             String
-  country             String
+  id                   String      @id @default(uuid())
+  institutionCode      String      @unique
+  name                 String
+  type                 SourceType
+  baseUrl              String
+  country              String
   /// Config especifica del adapter: feed URL, selectores de scraping, endpoint de API, etc.
-  config              Json
-  fetchMethod         FetchMethod @default(HTTP_SIMPLE)
-  isActive            Boolean     @default(true)
+  config               Json
+  fetchMethod          FetchMethod @default(HTTP_SIMPLE)
+  isActive             Boolean     @default(true)
   /// Hora del dia (formato "HH:mm", 24h) a la que se dispara la ingesta
   /// automatica de esta fuente, una vez por dia. null = solo manual (via
   /// el boton "Consultar ahora" del panel) -- este es el valor por
   /// defecto tras el incidente de agotamiento de credito del
   /// 2026-07-12 (ver RssAdapter): ninguna fuente ingiere sola salvo que
   /// alguien lo configure explicitamente.
-  scheduledTime       String?
+  scheduledTime        String?
   /// Proxima ejecucion programada -- solo tiene sentido cuando
   /// scheduledTime no es null; se recalcula en SourcesService cada vez
   /// que scheduledTime cambia, y IngestionDispatcher la avanza +24h tras
   /// disparar.
-  nextRunAt           DateTime?
+  nextRunAt            DateTime?
   lastSuccessfulCursor Json?
-  consecutiveFailures Int         @default(0)
+  consecutiveFailures  Int         @default(0)
   /// Tope de items nuevos por corrida de ingesta, configurable desde el
   /// panel (pestaña Fuentes) -- un solo campo uniforme para los tres
   /// tipos de adapter (antes vivia disperso dentro de `config` con
@@ -229,14 +229,14 @@ model Source {
   /// propio de cada adapter. Ver comentario del incidente de agotamiento
   /// de credito del 2026-07-12 en rss.adapter.ts -- este es el freno de
   /// primera linea contra que otra corrida traiga miles de items de golpe.
-  maxItemsPerRun      Int?
+  maxItemsPerRun       Int?
   /// Ventana de recencia en dias, configurable desde el panel -- se
   /// aplica en RSS y HTML_SCRAPE (filtra por fecha ANTES de aplicar
   /// maxItemsPerRun, igual que ya hacia RssAdapter). null = usa el
   /// default propio del adapter. No aplica a OPEN_DATA_API (SIVIGILA se
   /// ordena por semana/anio, no tiene una fecha de item individual util
   /// para este filtro).
-  maxAgeDays          Int?
+  maxAgeDays           Int?
 
   createdByUserId String?
   createdBy       User?   @relation("SourceCreatedBy", fields: [createdByUserId], references: [id])
@@ -260,19 +260,19 @@ model Article {
   id String @id @default(uuid())
 
   // --- Procedencia (obligatoria, inmutable, nunca inventada) ---
-  sourceId            String
-  source              Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
-  externalId          String?
-  sourceUrl           String
-  sourceInstitution   String
-  sourcePublishedAt   DateTime
-  fetchedAt           DateTime @default(now())
-  originalTitle       String
-  originalExcerpt     String?
-  originalContent     String
-  originalContentHash String
-  originalSnapshotUrl String?
-  imageUrl            String?
+  sourceId              String
+  source                Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  externalId            String?
+  sourceUrl             String
+  sourceInstitution     String
+  sourcePublishedAt     DateTime
+  fetchedAt             DateTime @default(now())
+  originalTitle         String
+  originalExcerpt       String?
+  originalContent       String
+  originalContentHash   String
+  originalSnapshotUrl   String?
+  imageUrl              String?
   /// Cuantas veces ArticleImageBackfillService intento recuperar la
   /// imagen despues de la ingesta inicial (2026-07-17, pedido explicito
   /// del usuario: un job periodico y deterministico -- SIN IA -- que
@@ -281,28 +281,28 @@ model Article {
   /// contador, un articulo que genuinamente no tiene imagen (ej.
   /// Minciencias, verificado en vivo que ni el feed ni og:image traen
   /// nada) se reintentaria cada corrida del cron para siempre.
-  imageBackfillAttempts Int    @default(0)
-  language              String @default("es")
+  imageBackfillAttempts Int      @default(0)
+  language              String   @default("es")
 
   // --- Filtrado / puntuacion (IA) ---
-  isRelevant       Boolean?
-  relevanceScore   Float?
-  relevanceReason  String?
-  riskLevel        RiskLevel?
-  riskReason       String?
-  contentType      ContentType?
+  isRelevant      Boolean?
+  relevanceScore  Float?
+  relevanceReason String?
+  riskLevel       RiskLevel?
+  riskReason      String?
+  contentType     ContentType?
 
   // --- Reescritura (IA) ---
-  rewrittenTitle       String?
-  rewrittenSummary     String?
-  rewrittenContent     String?
+  rewrittenTitle        String?
+  rewrittenSummary      String?
+  rewrittenContent      String?
   // Brief seccion 11: secciones obligatorias del articulo publicado que
   // no encajan en titulo/resumen/cuerpo -- "Puntos clave" (lista breve) y
   // "Por que es importante" (bloque contextual). Ver PublishService.buildPostBody.
-  rewrittenKeyPoints   String[] @default([])
+  rewrittenKeyPoints    String[] @default([])
   rewrittenWhyItMatters String?
-  rewriteModel         String?
-  rewriteAttempts      Int     @default(0)
+  rewriteModel          String?
+  rewriteAttempts       Int      @default(0)
 
   // --- Verificacion de fidelidad (anti-invencion) ---
   groundingStatus CheckStatus?
@@ -313,21 +313,21 @@ model Article {
   complianceReport Json?
 
   // --- Estado / maquina de estados ---
-  state        ArticleState @default(RECOLECTADO)
-  errorStage   String?
+  state            ArticleState @default(RECOLECTADO)
+  errorStage       String?
   lastErrorMessage String?
 
   // --- Validacion humana (obligatoria antes de publicar) ---
   validatorId        String?
-  validator           User?               @relation("ArticleValidator", fields: [validatorId], references: [id])
-  validationDecision  ValidationDecision?
-  validationNotes     String?
-  validatedAt          DateTime?
+  validator          User?               @relation("ArticleValidator", fields: [validatorId], references: [id])
+  validationDecision ValidationDecision?
+  validationNotes    String?
+  validatedAt        DateTime?
 
   // --- Publicacion (solo tras validacion, directo a nuestra API publica -- sin WordPress) ---
-  publishedAt         DateTime?
-  publishedByUserId   String?
-  publishedBy         User?    @relation("ArticlePublishedBy", fields: [publishedByUserId], references: [id])
+  publishedAt       DateTime?
+  publishedByUserId String?
+  publishedBy       User?     @relation("ArticlePublishedBy", fields: [publishedByUserId], references: [id])
 
   // --- Deduplicacion ---
   isDuplicateOf String?
@@ -349,7 +349,7 @@ model Article {
 /// que usa la aplicacion no debe tener privilegios UPDATE/DELETE sobre esta
 /// tabla (configurar a nivel de rol de Postgres, fuera de Prisma).
 model AuditLog {
-  id         String     @id @default(uuid())
+  id         String    @id @default(uuid())
   entityType String
   entityId   String
   action     String
@@ -358,7 +358,7 @@ model AuditLog {
   fromState  String?
   toState    String?
   payload    Json?
-  createdAt  DateTime   @default(now())
+  createdAt  DateTime  @default(now())
 
   @@index([entityType, entityId])
   @@map("audit_logs")
@@ -406,4 +406,142 @@ model PromptTemplate {
   updatedById String?
 
   @@map("prompt_templates")
+}
+
+// =====================================================================
+// Blog general (EcoFarma) -- distinto e independiente de Diario de la
+// Salud (Article/Source arriba). Brief: MASTER_GLOBAL_BLOG_ECOFARMA.xlsx
+// (444 posts planeados en 12 hubs tematicos, excluye explicitamente
+// Diario de la Salud). Este primer corte solo importa una muestra
+// (--limit 10 en scripts/import-blog-master.ts) y solo construye la
+// pantalla de redaccion -- reviewStatus/medicalValidationStatus/
+// publicationStatus quedan modelados pero sin pantalla propia todavia,
+// por eso viven como String simple (valor tal cual del Excel) en vez
+// de enums: no hay maquina de estados que los valide aun.
+// =====================================================================
+
+/// Unico estado con maquina de estados real en este corte -- los demas
+/// estados de produccion (relectura/validacion medica/publicacion) se
+/// guardan como String libre hasta que existan pantallas propias.
+enum BlogDraftStatus {
+  PENDIENTE_REDACCION
+  EN_REDACCION
+  REDACTADO
+}
+
+/// Un BlogPost = una fila de la hoja BLOG_MASTER del Excel maestro.
+/// Los campos de reglas/guardarailes (regulatoryLevel, productPolicy,
+/// aiGenerationRule, notes) vienen del Excel y son de solo lectura en
+/// el panel -- el redactor los ve como guia, no los edita.
+model BlogPost {
+  id String @id @default(uuid())
+
+  // --- Identidad / trazabilidad al Excel fuente ---
+  globalId        String  @unique
+  sourceContentId String?
+  sourceFile      String?
+  sourceRow       Int?
+
+  // --- Taxonomia (String simple, no enum -- se lee del Excel tal cual) ---
+  hub    String
+  subHub String?
+
+  // --- Contenido editorial ---
+  title         String
+  slug          String
+  cluster       String?
+  tagPrincipal  String?
+  tagsSecondary String[] @default([])
+
+  // --- Reglas / guardarailes (solo lectura en el panel, vienen del Excel) ---
+  seoPriority        String?
+  regulatoryLevel    String?
+  intention          String?
+  productPolicy      String?
+  validationRequired String?
+  aiGenerationRule   String? @db.Text
+  notes              String? @db.Text
+
+  // --- Estados de produccion ---
+  draftStatus             BlogDraftStatus @default(PENDIENTE_REDACCION)
+  reviewStatus            String          @default("À relire")
+  medicalValidationStatus String          @default("À valider si requis")
+  publicationStatus       String          @default("Non publié")
+
+  sections BlogPostSection[]
+  faqs     BlogFaq[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hub])
+  @@index([draftStatus])
+  @@map("blog_posts")
+}
+
+/// Un H2 obligatorio del articulo (brief: "Sous-titres / H2" en
+/// BLOG_MASTER, separados por salto de linea). `heading` viene del
+/// Excel y no es editable en el panel -- solo `body` lo escribe el
+/// redactor. `order` preserva el orden exacto exigido por el brief.
+model BlogPostSection {
+  id      String   @id @default(uuid())
+  postId  String
+  post    BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  order   Int
+  heading String
+  body    String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([postId, order])
+  @@map("blog_post_sections")
+}
+
+/// Una FAQ real (AlsoAsked) vinculada a un BlogPost -- hoja FAQ_BLOG del
+/// Excel. `question` y las columnas de fuente/regla vienen del Excel;
+/// `answer` es lo que redacta el usuario.
+model BlogFaq {
+  id     String   @id @default(uuid())
+  postId String
+  post   BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  faqBlockId     String?
+  questionNumber Int?
+  question       String  @db.Text
+  answer         String? @db.Text
+
+  sourceQuestion     String? @db.Text
+  sourceReferences   String? @db.Text
+  regulatoryLevel    String?
+  productPolicy      String?
+  validationRequired String?
+  notes              String? @db.Text
+  sourceFile         String?
+  sourceRow          Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("blog_faqs")
+}
+
+/// Catalogo de referencia -- hoja TAGS_BLOG del Excel. Se importan las
+/// 242 filas completas siempre (dato barato y util), independiente de
+/// cuantos BlogPost se hayan importado.
+model BlogTag {
+  id String @id @default(uuid())
+
+  tag           String  @unique
+  role          String?
+  linkedHubs    String? @db.Text
+  linkedSubHubs String? @db.Text
+  contentCount  Int?
+  examples      String? @db.Text
+  usageRule     String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("blog_tags")
 }

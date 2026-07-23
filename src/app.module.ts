@@ -20,6 +20,7 @@ import { ValidationModule } from './validation/validation.module';
 import { PublishModule } from './publish/publish.module';
 import { PromptsModule } from './prompts/prompts.module';
 import { PipelineStatusModule } from './pipeline-status/pipeline-status.module';
+import { BlogModule } from './blog/blog.module';
 
 @Module({
   imports: [
@@ -31,7 +32,7 @@ import { PipelineStatusModule } from './pipeline-status/pipeline-status.module';
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', '..', 'public'),
       renderPath: '*path',
-      exclude: ['/auth/(.*)', '/validation/(.*)', '/sources/(.*)', '/publish/(.*)', '/articles/(.*)', '/articles', '/health', '/prompts/(.*)', '/prompts', '/pipeline/(.*)'],
+      exclude: ['/auth/(.*)', '/validation/(.*)', '/sources/(.*)', '/publish/(.*)', '/articles/(.*)', '/articles', '/health', '/prompts/(.*)', '/prompts', '/pipeline/(.*)', '/blog/(.*)', '/blog'],
       serveStaticOptions: { index: 'index.html', fallthrough: true },
     }),
 
@@ -52,6 +53,7 @@ import { PipelineStatusModule } from './pipeline-status/pipeline-status.module';
     PublishModule,
     PromptsModule,
     PipelineStatusModule,
+    BlogModule,
   ],
   controllers: [HealthController],
 })
