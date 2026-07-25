@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ArticleState } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ArticleStateMachineService } from '../articles/article-state-machine.service';
+import { withDefaultImage } from '../common/default-article-image.util';
 
 /// Decision 2026-07-16: la publicacion ya no empuja hacia un WordPress
 /// externo (ver [[ecofarma-diario-salud-stack]] en memoria) -- el destino
@@ -15,12 +16,13 @@ export class PublishService {
 
   /// Articulos validados por un humano, esperando el paso final de
   /// publicacion.
-  getPublishQueue() {
-    return this.prisma.article.findMany({
+  async getPublishQueue() {
+    const articles = await this.prisma.article.findMany({
       where: { state: ArticleState.VALIDADO },
       orderBy: { validatedAt: 'asc' },
       include: { source: true },
     });
+    return articles.map(withDefaultImage);
   }
 
   async publish(articleId: string, actorId: string) {

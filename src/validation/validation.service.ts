@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ArticlesService } from '../articles/articles.service';
 import { ArticleStateMachineService } from '../articles/article-state-machine.service';
 import { QUEUE_NAMES, JOB_NAMES } from '../queue/queue.constants';
+import { withDefaultImage } from '../common/default-article-image.util';
 
 @Injectable()
 export class ValidationService {
@@ -17,24 +18,26 @@ export class ValidationService {
   ) {}
 
   /// Cola de revision: articulos ya listos para que un humano decida.
-  getReviewQueue() {
-    return this.prisma.article.findMany({
+  async getReviewQueue() {
+    const articles = await this.prisma.article.findMany({
       where: { state: ArticleState.EN_VALIDACION },
       orderBy: { createdAt: 'asc' },
       include: { source: true },
     });
+    return articles.map(withDefaultImage);
   }
 
   /// Cola de triage: articulos que el pipeline automatico no pudo
   /// resolver por si solo (fallo de fidelidad tras el reintento, fallo
   /// de cumplimiento, o error tecnico) y requieren decision humana:
   /// regenerar, editar manualmente, o rechazar.
-  getTriageQueue() {
-    return this.prisma.article.findMany({
+  async getTriageQueue() {
+    const articles = await this.prisma.article.findMany({
       where: { state: { in: [ArticleState.GROUNDING_FALLIDO, ArticleState.CUMPLIMIENTO_FALLIDO, ArticleState.ERROR] } },
       orderBy: { createdAt: 'asc' },
       include: { source: true },
     });
+    return articles.map(withDefaultImage);
   }
 
   /// Vista unificada para el panel (2026-07-17, pedido explicito del
@@ -47,8 +50,8 @@ export class ValidationService {
   /// rewrittenTitle/rewrittenContent, no encajan en las columnas de
   /// esta tabla (pensada para revisar reescrituras, no el crudo
   /// recolectado).
-  getAllForStaff() {
-    return this.prisma.article.findMany({
+  async getAllForStaff() {
+    const articles = await this.prisma.article.findMany({
       where: {
         state: {
           in: [
@@ -65,6 +68,7 @@ export class ValidationService {
       orderBy: { createdAt: 'desc' },
       include: { source: true },
     });
+    return articles.map(withDefaultImage);
   }
 
   getDetail(articleId: string) {

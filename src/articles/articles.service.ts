@@ -5,6 +5,7 @@ import { AuditLogService } from '../audit/audit-log.service';
 import { RawCandidate } from '../sources/interfaces/raw-candidate.interface';
 import { QueryApprovedArticlesDto } from './dto/query-approved-articles.dto';
 import { detectLanguage } from '../common/language-detection.util';
+import { DEFAULT_ARTICLE_IMAGE_URL } from '../common/default-article-image.util';
 
 /// Estados que puede tener un articulo aprobado por un revisor humano:
 /// VALIDADO (aprobado, aun no expuesto en la API publica) o PUBLICADO
@@ -158,7 +159,7 @@ export class ArticlesService {
       content: article.rewrittenContent ?? '',
       keyPoints: article.rewrittenKeyPoints,
       whyItMatters: article.rewrittenWhyItMatters,
-      imageUrl: article.imageUrl,
+      imageUrl: article.imageUrl ?? DEFAULT_ARTICLE_IMAGE_URL,
       riskLevel: article.riskLevel,
       contentType: article.contentType,
       state: article.state,
