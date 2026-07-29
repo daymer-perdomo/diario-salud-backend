@@ -124,12 +124,17 @@ export class DistrimonacoSyncService implements OnModuleInit {
     }
   }
 
+  /// El nombre de la sucursal es lo unico de este servicio que el LLM ve
+  /// y le puede repetir al cliente (ver ChatbotService.gatherFacts,
+  /// stockByBranch.branch) -- NUNCA debe mencionar a Distrimonaco (el
+  /// proveedor mayorista de los datos), solo la marca de cara al publico
+  /// es EcoFarma. Pedido explicito del usuario 2026-07-29.
   private async getOrCreateDefaultBranch() {
     const code = this.config.get<string>('DISTRIMONACO_BRANCH_CODE') ?? 'PRINCIPAL';
     return this.prisma.branch.upsert({
       where: { code },
       update: {},
-      create: { code, name: 'Principal (Distrimonaco)' },
+      create: { code, name: 'Sucursal Principal' },
     });
   }
 
