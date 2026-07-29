@@ -26,9 +26,8 @@
   /// dominio de WordPress en vez del backend (mismo bug que ya se dio con
   /// el fallback de imagen de Diario de la Salud -- ver
   /// default-article-image.util.ts).
-  var LOGO_URL = API_BASE_URL + '/assets/ecofarma-logo-white.webp';
+  var AVATAR_URL = API_BASE_URL + '/assets/chatbot-avatar.png';
   var BRAND_BLUE = '#12238f';
-  var BRAND_BLUE_DARK = '#0e1c72';
 
   var STYLES = `
     :host, * { box-sizing: border-box; }
@@ -38,21 +37,21 @@
        sin importar el dispositivo o si el tema tiene una barra de
        navegacion movil debajo (ver esa funcion mas abajo). */
     .fab {
-      position: fixed; bottom: 20px; right: 20px; width: 56px; height: 56px; border-radius: 50%;
-      background: ${BRAND_BLUE}; color: #fff; border: none; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.2);
-      display: flex; align-items: center; justify-content: center; z-index: 999999; font-size: 24px;
+      position: fixed; bottom: 20px; right: 20px; width: 64px; height: 64px; border-radius: 50%;
+      background: ${BRAND_BLUE}; border: none; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.2);
+      display: flex; align-items: center; justify-content: center; z-index: 999999; padding: 0; overflow: hidden;
     }
-    .fab:hover { background: ${BRAND_BLUE_DARK}; }
-    .fab img { width: 30px; height: auto; }
+    .fab:hover { box-shadow: 0 8px 22px rgba(0,0,0,.3); }
+    .fab img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .panel {
-      position: fixed; bottom: 88px; right: 20px; width: 440px; max-width: calc(100vw - 32px);
+      position: fixed; bottom: 96px; right: 20px; width: 440px; max-width: calc(100vw - 32px);
       height: 560px; max-height: calc(100vh - 120px); background: #fff; border-radius: 14px;
       box-shadow: 0 10px 40px rgba(0,0,0,.25); display: flex; flex-direction: column; overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; z-index: 999999;
     }
     .panel.hidden { display: none; }
     .header { background: ${BRAND_BLUE}; color: #fff; padding: 14px 16px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
-    .header img { height: 22px; width: auto; flex-shrink: 0; }
+    .header img { height: 36px; width: 36px; object-fit: cover; border-radius: 50%; flex-shrink: 0; }
     .header small { display: block; font-weight: 400; opacity: .85; font-size: 11px; margin-top: 2px; }
     .messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #f8fafc; }
     .msg { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
@@ -150,13 +149,13 @@
     var fab = document.createElement('button');
     fab.className = 'fab';
     fab.setAttribute('aria-label', 'Abrir chat de inventario');
-    fab.innerHTML = '<img src="' + LOGO_URL + '" alt="EcoFarma" />';
+    fab.innerHTML = '<img src="' + AVATAR_URL + '" alt="Asistente EcoFarma" />';
     root.appendChild(fab);
 
     var panel = document.createElement('div');
     panel.className = 'panel hidden';
     panel.innerHTML =
-      '<div class="header"><img src="' + LOGO_URL + '" alt="EcoFarma" />' +
+      '<div class="header"><img src="' + AVATAR_URL + '" alt="Asistente EcoFarma" />' +
       '<div>Asistente de inventario<small>Disponibilidad, precio y sucursales</small></div></div>' +
       '<div class="messages"></div>' +
       '<div class="cart-bar hidden"></div>' +
@@ -186,7 +185,7 @@
         }
       }
       fab.style.bottom = bottom + 'px';
-      panel.style.bottom = bottom + 68 + 'px';
+      panel.style.bottom = bottom + 76 + 'px';
     }
     positionAboveCart();
     // El carrito lateral puede montarse despues de que corre este script
