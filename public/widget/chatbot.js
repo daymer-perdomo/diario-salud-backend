@@ -156,7 +156,7 @@
     panel.className = 'panel hidden';
     panel.innerHTML =
       '<div class="header"><img src="' + AVATAR_URL + '" alt="Asistente EcoFarma" />' +
-      '<div>Asistente de inventario<small>Disponibilidad, precio y sucursales</small></div></div>' +
+      '<div>¡Hola! ¿En qué puedo ayudarte?<small>Disponibilidad, precio y sucursales</small></div></div>' +
       '<div class="messages"></div>' +
       '<div class="cart-bar hidden"></div>' +
       '<div class="composer">' +
