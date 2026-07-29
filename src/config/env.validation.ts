@@ -46,6 +46,30 @@ export const envSchema = z.object({
   /// no una estimacion. Sin definir = sin limite (Infinity).
   MAX_LLM_BUDGET_USD: z.coerce.number().positive().optional(),
 
+  /// Mismo mecanismo que MAX_LLM_BUDGET_USD pero para el dominio "chatbot"
+  /// (stages con prefijo chat_, ver LlmBudgetService.domainForStage) --
+  /// techo independiente para que trafico del chatbot publico no pueda
+  /// agotar el presupuesto del pipeline editorial, ni viceversa. Sin
+  /// definir = sin limite (Infinity), igual que MAX_LLM_BUDGET_USD.
+  MAX_LLM_BUDGET_CHATBOT_USD: z.coerce.number().positive().optional(),
+
+  /// Integracion con la API de inventario de Distrimonaco (ver
+  /// DistrimonacoSyncService) -- ProductosStock NO soporta filtros ni
+  /// paginacion (probado: cualquier query param devuelve 500 "Cannot
+  /// find column 1"), devuelve el catalogo completo de una sola vez
+  /// (~6800 productos, ~2.2MB). Por eso el chatbot JAMAS llama a esta API
+  /// en vivo -- un job programado la sincroniza cada
+  /// DISTRIMONACO_SYNC_INTERVAL_MINUTES hacia Product/ProductStock, y el
+  /// chatbot solo consulta esa copia local. Sin URL/API key definidos, la
+  /// sincronizacion se omite (no rompe el arranque).
+  DISTRIMONACO_API_URL: z.string().url().optional(),
+  DISTRIMONACO_API_KEY: z.string().optional(),
+  DISTRIMONACO_SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(60),
+  /// La API no reporta sucursal, un solo Stock por producto -- se guarda
+  /// bajo esta sucursal generica hasta que se confirme si es un
+  /// consolidado o una bodega especifica (ver plan).
+  DISTRIMONACO_BRANCH_CODE: z.string().default('PRINCIPAL'),
+
   PORT: z.coerce.number().int().positive().default(3000),
   /// 'staging' es un ambiente real y distinto de 'production' -- probar
   /// cambios de pipeline/schema contra una base de datos separada antes

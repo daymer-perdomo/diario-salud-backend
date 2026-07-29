@@ -11,11 +11,26 @@ import { PrismaService } from '../prisma/prisma.service';
 /// assertWithinBudget() ANTES de cada llamada a la API (bloquea antes de
 /// gastar, no despues) y recordUsage() DESPUES de cada llamada exitosa
 /// (con los tokens reales que Gemini reporto).
+export type LlmBudgetDomain = 'pipeline' | 'chatbot';
+
+/// Un stage de chatbot (extractChatIntent/composeChatReply) siempre
+/// arranca con "chat_" (ver GeminiLlmService) -- todo lo demas es el
+/// pipeline editorial existente. Nuevo llamador = agregar su propio
+/// prefijo aca si alguna vez necesita su propio techo.
+export function domainForStage(stage: string): LlmBudgetDomain {
+  return stage.startsWith('chat_') ? 'chatbot' : 'pipeline';
+}
+
+const BUDGET_ENV_VAR: Record<LlmBudgetDomain, string> = {
+  pipeline: 'MAX_LLM_BUDGET_USD',
+  chatbot: 'MAX_LLM_BUDGET_CHATBOT_USD',
+};
+
 export class LlmBudgetExceededError extends Error {
-  constructor(spentUsd: number, budgetUsd: number) {
+  constructor(domain: LlmBudgetDomain, spentUsd: number, budgetUsd: number) {
     super(
-      `Presupuesto de IA agotado: gastado $${spentUsd.toFixed(4)} de un maximo de $${budgetUsd.toFixed(2)} ` +
-        `(MAX_LLM_BUDGET_USD). Ninguna llamada nueva a Gemini se ejecuta hasta que se suba el limite.`,
+      `Presupuesto de IA (${domain}) agotado: gastado $${spentUsd.toFixed(4)} de un maximo de $${budgetUsd.toFixed(2)} ` +
+        `(${BUDGET_ENV_VAR[domain]}). Ninguna llamada nueva a Gemini de este dominio se ejecuta hasta que se suba el limite.`,
     );
     this.name = 'LlmBudgetExceededError';
   }
@@ -62,25 +77,32 @@ export class LlmBudgetService {
 
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
 
-  private getBudgetUsd(): number {
-    return this.config.get<number>('MAX_LLM_BUDGET_USD') ?? Number.POSITIVE_INFINITY;
+  private getBudgetUsd(domain: LlmBudgetDomain): number {
+    return this.config.get<number>(BUDGET_ENV_VAR[domain]) ?? Number.POSITIVE_INFINITY;
   }
 
-  async getCumulativeSpendUsd(): Promise<number> {
-    const result = await this.prisma.llmCall.aggregate({ _sum: { costUsd: true } });
+  async getCumulativeSpendUsd(domain: LlmBudgetDomain): Promise<number> {
+    const stageFilter = domain === 'chatbot' ? { startsWith: 'chat_' } : { not: { startsWith: 'chat_' } };
+    const result = await this.prisma.llmCall.aggregate({
+      where: { stage: stageFilter },
+      _sum: { costUsd: true },
+    });
     return Number(result._sum.costUsd ?? 0);
   }
 
-  /// Llamar ANTES de cada request a la API de Gemini. Lanza
-  /// LlmBudgetExceededError (sin hacer la llamada) si ya se alcanzo el
-  /// presupuesto -- el freno actua antes de gastar, no despues.
-  async assertWithinBudget(): Promise<void> {
-    const budget = this.getBudgetUsd();
+  /// Llamar ANTES de cada request a la API de Gemini, con el `stage` que
+  /// se va a usar. Lanza LlmBudgetExceededError (sin hacer la llamada) si
+  /// el dominio de ese stage (ver domainForStage) ya alcanzo su
+  /// presupuesto -- el freno actua antes de gastar, no despues, y esta
+  /// aislado por dominio para que un consumidor no pueda tumbar al otro.
+  async assertWithinBudget(stage: string): Promise<void> {
+    const domain = domainForStage(stage);
+    const budget = this.getBudgetUsd(domain);
     if (!Number.isFinite(budget)) return;
 
-    const spent = await this.getCumulativeSpendUsd();
+    const spent = await this.getCumulativeSpendUsd(domain);
     if (spent >= budget) {
-      throw new LlmBudgetExceededError(spent, budget);
+      throw new LlmBudgetExceededError(domain, spent, budget);
     }
   }
 
@@ -102,11 +124,12 @@ export class LlmBudgetService {
       },
     });
 
-    const spent = await this.getCumulativeSpendUsd();
-    const budget = this.getBudgetUsd();
+    const domain = domainForStage(params.stage);
+    const spent = await this.getCumulativeSpendUsd(domain);
+    const budget = this.getBudgetUsd(domain);
     this.logger.log(
-      `Llamada a ${params.model} (${params.stage}): ${params.inputTokens} in / ${params.outputTokens} out = ` +
-        `$${costUsd.toFixed(4)}. Acumulado: $${spent.toFixed(4)}` +
+      `Llamada a ${params.model} (${params.stage}, dominio ${domain}): ${params.inputTokens} in / ${params.outputTokens} out = ` +
+        `$${costUsd.toFixed(4)}. Acumulado ${domain}: $${spent.toFixed(4)}` +
         (Number.isFinite(budget) ? ` de $${budget.toFixed(2)}` : ''),
     );
     return spent;

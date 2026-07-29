@@ -3,6 +3,8 @@ import { VerifyClaimsOutput } from './schemas/verify-claims.schema';
 import { ComplianceCheckOutput } from './schemas/compliance.schema';
 import { ScoringOutput } from './schemas/scoring.schema';
 import { ExtractClaimsOutput } from './schemas/extract-claims.schema';
+import { ChatIntentOutput } from './schemas/chat-intent.schema';
+import { ChatReplyOutput } from './schemas/chat-reply.schema';
 
 /// Interfaz intercambiable: el proveedor de IA (Claude, OpenAI, u otro)
 /// se decide en LlmModule, no aqui. Ningun modulo del pipeline debe
@@ -32,6 +34,13 @@ export interface LlmService {
   extractClaims(input: { rewrittenText: string }): Promise<ExtractClaimsOutput>;
 
   checkCompliance(input: { rewrittenTitle: string; rewrittenContent: string }): Promise<ComplianceCheckOutput>;
+
+  extractChatIntent(input: {
+    message: string;
+    history: Array<{ role: 'USER' | 'ASSISTANT'; content: string }>;
+  }): Promise<ChatIntentOutput>;
+
+  composeChatReply(input: { message: string; facts: unknown }): Promise<ChatReplyOutput>;
 }
 
 export const LLM_SERVICE = 'LLM_SERVICE';

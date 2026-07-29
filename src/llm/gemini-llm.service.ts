@@ -23,6 +23,8 @@ import {
   ExtractClaimsOutputSchema,
   EXTRACT_CLAIMS_TOOL_JSON_SCHEMA,
 } from './schemas/extract-claims.schema';
+import { ChatIntentOutput, ChatIntentSchema, CHAT_INTENT_TOOL_JSON_SCHEMA } from './schemas/chat-intent.schema';
+import { ChatReplyOutput, ChatReplyOutputSchema, CHAT_REPLY_TOOL_JSON_SCHEMA } from './schemas/chat-reply.schema';
 
 /// Unico proveedor de IA del pipeline (2026-07-16: Claude retirado por
 /// pedido explicito del usuario, cuenta de Anthropic sin credito --
@@ -117,6 +119,41 @@ export class GeminiLlmService implements LlmService {
     });
   }
 
+  /// `stage` con prefijo `chat_` a proposito -- es lo que LlmBudgetService
+  /// (domainForStage) usa para aislar el presupuesto del chatbot publico
+  /// del presupuesto del pipeline editorial (ver plan
+  /// kind-giggling-cerf.md, Fase 0).
+  async extractChatIntent(input: {
+    message: string;
+    history: Array<{ role: 'USER' | 'ASSISTANT'; content: string }>;
+  }): Promise<ChatIntentOutput> {
+    const historyText = input.history.length
+      ? input.history.map((h) => `${h.role === 'USER' ? 'Cliente' : 'Asistente'}: ${h.content}`).join('\n')
+      : '(sin turnos previos)';
+    return this.callWithStructuredOutput({
+      systemPrompt: await this.prompts.getContent(PromptKey.CHAT_INTENT_EXTRACTION),
+      userPrompt: `Turnos previos:\n${historyText}\n\nMensaje del cliente:\n${input.message}`,
+      stage: 'chat_extract_intent',
+      jsonSchema: CHAT_INTENT_TOOL_JSON_SCHEMA,
+      zodSchema: ChatIntentSchema,
+      maxOutputTokens: 512,
+    });
+  }
+
+  /// `facts` es SIEMPRE lo que InventoryService ya consulto de Postgres
+  /// (ver ChatbotService) -- nunca se le pide al modelo que "sepa" stock o
+  /// precio por su cuenta, solo que redacte a partir de este JSON.
+  async composeChatReply(input: { message: string; facts: unknown }): Promise<ChatReplyOutput> {
+    return this.callWithStructuredOutput({
+      systemPrompt: await this.prompts.getContent(PromptKey.CHAT_REPLY_COMPOSITION),
+      userPrompt: `Mensaje del cliente:\n${input.message}\n\nHechos consultados en la base de datos (JSON):\n${JSON.stringify(input.facts)}`,
+      stage: 'chat_compose_reply',
+      jsonSchema: CHAT_REPLY_TOOL_JSON_SCHEMA,
+      zodSchema: ChatReplyOutputSchema,
+      maxOutputTokens: 1024,
+    });
+  }
+
   /// Valida con Zod y reintenta UNA vez con un mensaje correctivo si la
   /// salida no cumple -- responseSchema baja la probabilidad de esto pero
   /// no la elimina (el modelo puede igual devolver un enum fuera de rango,
@@ -145,7 +182,7 @@ export class GeminiLlmService implements LlmService {
       // Bloquea ANTES de gastar, no despues -- ver comentario de
       // LlmBudgetService sobre el pedido del usuario (2026-07-16) de un
       // presupuesto maximo real en USD (MAX_LLM_BUDGET_USD).
-      await this.budget.assertWithinBudget();
+      await this.budget.assertWithinBudget(params.stage);
 
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`,

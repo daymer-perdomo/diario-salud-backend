@@ -1,0 +1,141 @@
+      <p class="section-title">Probar chatbot</p>
+      <p class="section-sub">Esta pantalla llama al mismo endpoint público que usa el widget de WordPress (<span class="text-mono">POST /chatbot/message</span>, sin autenticación), con el mismo rate limiting -- es exactamente lo que vería un cliente final, no una vista con privilegios especiales.</p>
+
+      <div class="card" style="max-width:680px;">
+        <div class="card-header">
+          <span class="card-title">Conversación de prueba</span>
+          <button class="btn btn-secondary btn-sm" @click="resetChatbotTestConversation()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Nueva conversación
+          </button>
+        </div>
+
+        <div id="chatbot-test-messages" style="height:460px;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px;background:var(--panel-soft);">
+          <p x-show="!chatbotTestMessages.length" class="muted" style="text-align:center;margin-top:24px;">Escribe abajo como si fueras un cliente preguntando por un producto.</p>
+          <template x-for="(msg, idx) in chatbotTestMessages" :key="idx">
+            <div :style="{ display: 'flex', flexDirection: 'column', gap: msg.role === 'menu' ? '8px' : '6px', width: msg.role === 'menu' ? '70%' : 'auto', maxWidth: msg.role === 'menu' ? '70%' : '82%', alignSelf: msg.role === 'menu' ? 'center' : (msg.role === 'user' ? 'flex-end' : 'flex-start') }">
+              <div x-show="msg.role === 'menu'" class="flex flex-col gap-2">
+                <template x-for="opt in chatbotTestMenuOptions" :key="opt.action">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    :style="`justify-content:center;text-align:center;width:100%;${opt.disabled ? 'opacity:.5;cursor:not-allowed;' : ''}`"
+                    :disabled="opt.disabled"
+                    :title="opt.disabled ? 'Disponible próximamente' : ''"
+                    @click="!opt.disabled && selectChatbotTestMenuOption(idx, opt)"
+                    x-text="opt.label"
+                  ></button>
+                </template>
+              </div>
+              <div
+                x-show="msg.role !== 'menu'"
+                :style="{
+                  padding: '8px 12px',
+                  borderRadius: '12px',
+                  fontSize: '13px',
+                  lineHeight: '1.45',
+                  whiteSpace: 'pre-wrap',
+                  background: msg.role === 'user' ? '#0f766e' : (msg.role === 'error' ? '#fef2f2' : (msg.role === 'notice' ? '#fffbeb' : '#fff')),
+                  color: msg.role === 'user' ? '#fff' : (msg.role === 'error' ? '#b91c1c' : (msg.role === 'notice' ? '#92400e' : '#1e293b')),
+                  border: msg.role === 'user' ? 'none' : (msg.role === 'error' ? '1px solid #fecaca' : (msg.role === 'notice' ? '1px solid #fde68a' : '1px solid var(--line)')),
+                }"
+                x-text="msg.text"
+              ></div>
+              <div x-show="msg.products" style="overflow-x:auto;">
+                <table class="table" style="font-size:12px;background:#fff;table-layout:fixed;width:100%;min-width:480px;">
+                  <colgroup>
+                    <col style="width:46%;" /><col style="width:18%;" /><col style="width:10%;" /><col style="width:26%;" />
+                  </colgroup>
+                  <thead>
+                    <tr><th>Producto</th><th>Precio</th><th>Stock</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="p in (msg.products || [])" :key="p.sku">
+                      <tr>
+                        <td style="vertical-align:top;">
+                          <div style="font-weight:600;" x-text="p.name"></div>
+                          <div x-show="p.labName" class="muted" style="font-size:10.5px;" x-text="p.labName"></div>
+                          <div x-show="p.requiresPrescription" style="font-size:10px;color:#b45309;">Requiere receta</div>
+                        </td>
+                        <td style="vertical-align:top;" x-text="formatPrice(p.price)"></td>
+                        <td style="vertical-align:top;" x-text="p.stock"></td>
+                        <td style="vertical-align:top;">
+                          <div class="flex items-center gap-1" x-show="p.stock > 0">
+                            <input type="number" class="input" style="width:52px;padding:2px 4px;" min="1" :max="p.stock" x-model.number="p._qty" />
+                            <button class="btn btn-primary btn-sm" @click="addToChatbotTestCart(p, p._qty || 1)">Agregar</button>
+                          </div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </template>
+          <div x-show="chatbotTestBusy" class="muted" style="align-self:flex-start;font-size:12px;">Escribiendo...</div>
+        </div>
+
+        <div x-show="chatbotTestCart.items.length" style="border-top:1px solid var(--line);">
+          <div class="flex items-center justify-between" style="padding:8px 16px;">
+            <span>🛒 <span x-text="chatbotTestCart.items.length"></span> producto<span x-show="chatbotTestCart.items.length !== 1">s</span></span>
+            <strong x-text="formatPrice(chatbotTestCart.total)"></strong>
+          </div>
+          <div style="padding:0 16px 10px;">
+            <template x-for="item in chatbotTestCart.items" :key="item.sku">
+              <div class="flex items-center justify-between" style="font-size:12px;padding:3px 0;">
+                <span x-text="`${item.quantity}x ${item.name}`"></span>
+                <button class="btn-ghost" style="color:#b91c1c;padding:0 4px;" @click="removeFromChatbotTestCart(item.sku)">✕</button>
+              </div>
+            </template>
+
+            <template x-if="!chatbotTestCartFormOpen">
+              <button class="btn btn-primary btn-sm" style="width:100%;margin-top:6px;" @click="chatbotTestCartFormOpen = true">Enviar solicitud de pedido</button>
+            </template>
+            <template x-if="chatbotTestCartFormOpen">
+              <div class="flex flex-col gap-2" style="margin-top:6px;">
+                <input type="text" class="input" placeholder="Nombre del cliente" x-model="chatbotTestCartName" />
+                <input type="text" class="input" placeholder="Teléfono de contacto" x-model="chatbotTestCartPhone" />
+                <div class="flex gap-2">
+                  <button class="btn btn-primary btn-sm" style="flex:1;" @click="submitChatbotTestCart()" :disabled="chatbotTestCartBusy">
+                    <span x-show="chatbotTestCartBusy" class="spin"></span>
+                    Confirmar solicitud
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="chatbotTestCartFormOpen = false">Cancelar</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div x-show="chatbotTestReferenceFormVisible" class="inline-form" style="padding:8px 16px 0;">
+          <input
+            type="text"
+            class="input"
+            style="flex:1;"
+            placeholder="Número de referencia (ej. AEA5DCBE)"
+            x-model="chatbotTestReferenceInput"
+            @keydown.enter="submitChatbotTestReference()"
+          />
+          <button class="btn btn-primary btn-sm" @click="submitChatbotTestReference()" :disabled="!chatbotTestReferenceInput.trim()">Consultar</button>
+        </div>
+
+        <div class="inline-form" style="padding:12px 16px;border-top:1px solid var(--line);">
+          <button class="btn btn-secondary btn-sm" style="width:36px;padding:0;flex-shrink:0;" @click="showChatbotTestMenu()" title="Ver opciones" aria-label="Ver opciones">☰</button>
+          <input
+            type="text"
+            class="input"
+            style="flex:1;"
+            placeholder="Ej. tienen acetaminofen disponible?"
+            x-model="chatbotTestInput"
+            @keydown.enter="sendChatbotTestMessage()"
+            :disabled="chatbotTestBusy"
+          />
+          <button class="btn btn-primary btn-sm" @click="sendChatbotTestMessage()" :disabled="chatbotTestBusy || !chatbotTestInput.trim()">
+            <span x-show="chatbotTestBusy" class="spin"></span>
+            Enviar
+          </button>
+        </div>
+
+        <p class="muted" style="padding:0 16px 16px;font-size:11px;" x-show="chatbotTestConversationId">
+          conversationId: <span class="text-mono" x-text="chatbotTestConversationId"></span>
+        </p>
+      </div>

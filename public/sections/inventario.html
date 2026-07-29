@@ -1,0 +1,235 @@
+      <p class="section-title">Inventario</p>
+      <p class="section-sub">Productos, sucursales y stock que alimentan al chatbot público de disponibilidad/precio embebido en el sitio web. Se carga en bloque desde Excel (scripts/import-inventory-master.ts) y se ajusta a mano acá entre importaciones.</p>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Sincronización con Distrimonaco</span>
+          <button class="btn btn-primary btn-sm" @click="syncDistrimonacoNow()" :disabled="distrimonacoSyncBusy">
+            <span x-show="distrimonacoSyncBusy" class="spin"></span>
+            Sincronizar ahora
+          </button>
+        </div>
+        <p class="section-sub" style="padding:0 16px 8px;">El catálogo completo (stock y precio) se trae automáticamente cada cierto tiempo -- el chatbot nunca consulta la API externa en vivo, solo esta copia local.</p>
+        <div class="table-scroll" style="padding:0 16px 16px;">
+          <table class="table" x-show="distrimonacoSyncRuns.length">
+            <thead>
+              <tr>
+                <th>Inicio</th>
+                <th>Estado</th>
+                <th>Productos</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="run in distrimonacoSyncRuns" :key="run.id">
+                <tr>
+                  <td x-text="formatDateTime(run.startedAt)"></td>
+                  <td><span class="badge" :class="{ EN_CURSO: 'badge-amber', COMPLETADO: 'badge-green', FALLIDO: 'badge-red' }[run.status]" x-text="run.status"></span></td>
+                  <td x-text="run.itemsSynced ?? '—'"></td>
+                  <td class="text-mono muted" x-text="run.errorMessage || '—'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <p x-show="!distrimonacoSyncRuns.length" class="muted">Sin sincronizaciones todavía.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Sinónimos de búsqueda</span>
+        </div>
+        <p class="section-sub" style="padding:0 16px 8px;">El chatbot busca por coincidencia literal de texto en nombre/SKU del producto. Si un cliente pregunta por una categoría o síntoma (ej. "hongos") en vez del nombre exacto, acá defines a qué términos reales del catálogo debe expandirse la búsqueda (ej. clotrimazol, fluconazol).</p>
+        <div class="inline-form">
+          <div class="field">
+            <label class="label">Término (lo que escribe el cliente)</label>
+            <input type="text" class="input" x-model="newSynonymTerm" placeholder="hongos" />
+          </div>
+          <div class="field" style="flex:2;">
+            <label class="label">Se expande a (separado por comas)</label>
+            <input type="text" class="input" x-model="newSynonymRelated" placeholder="clotrimazol, fluconazol, ketoconazol" />
+          </div>
+          <button class="btn btn-primary btn-sm" @click="createSynonym()" :disabled="newSynonymBusy || !newSynonymTerm.trim() || !newSynonymRelated.trim()">
+            <span x-show="newSynonymBusy" class="spin"></span>
+            Agregar
+          </button>
+        </div>
+        <div class="table-scroll" style="padding:0 16px 16px;">
+          <table class="table" x-show="synonyms.length">
+            <thead>
+              <tr><th>Término</th><th>Se expande a</th><th></th></tr>
+            </thead>
+            <tbody>
+              <template x-for="syn in synonyms" :key="syn.id">
+                <tr>
+                  <td class="text-mono" x-text="syn.term"></td>
+                  <td x-text="syn.relatedTerms.join(', ')"></td>
+                  <td>
+                    <button class="btn btn-secondary btn-sm" @click="deleteSynonym(syn)" :disabled="syn._busy">Quitar</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <p x-show="!synonyms.length" class="muted">Sin sinónimos configurados todavía.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Sucursales</span>
+        </div>
+        <div class="inline-form">
+          <div class="field">
+            <label class="label">Código</label>
+            <input type="text" class="input" x-model="newBranchCode" placeholder="SUC-CENTRO" />
+          </div>
+          <div class="field">
+            <label class="label">Nombre</label>
+            <input type="text" class="input" x-model="newBranchName" placeholder="Sucursal Centro" />
+          </div>
+          <button class="btn btn-primary btn-sm" @click="createBranch()" :disabled="newBranchBusy || !newBranchCode.trim() || !newBranchName.trim()">
+            <span x-show="newBranchBusy" class="spin"></span>
+            Agregar sucursal
+          </button>
+        </div>
+        <div class="flex items-center gap-2" style="flex-wrap:wrap;padding:0 16px 16px;">
+          <template x-for="b in inventoryBranches" :key="b.id">
+            <span class="badge" :class="b.isActive ? 'badge-green' : 'badge-gray'" x-text="`${b.name} (${b.code})`"></span>
+          </template>
+          <span x-show="!inventoryBranches.length" class="muted">Sin sucursales todavía.</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+            <span class="card-title" x-text="`${inventoryMeta.total} producto${inventoryMeta.total !== 1 ? 's' : ''}`"></span>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click="loadInventoryProducts()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Actualizar
+          </button>
+        </div>
+
+        <div class="inline-form">
+          <div class="field">
+            <label class="label">Buscar (nombre, SKU o principio activo)</label>
+            <input type="text" class="input" x-model="inventorySearch" @keyup.enter="inventoryPage = 1; loadInventoryProducts()" placeholder="Ej. acetaminofen" />
+          </div>
+          <div class="field">
+            <label class="label">Categoría</label>
+            <input type="text" class="input" x-model="inventoryCategoryFilter" @keyup.enter="inventoryPage = 1; loadInventoryProducts()" placeholder="Ej. Analgesicos" />
+          </div>
+          <button class="btn btn-secondary btn-sm" @click="inventoryPage = 1; loadInventoryProducts()">Filtrar</button>
+        </div>
+
+        <div x-show="inventoryProductsLoading" class="loader"><span class="spin dark"></span></div>
+
+        <div x-show="!inventoryProductsLoading && !inventoryProducts.length" class="empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <p>No hay productos en este filtro</p>
+        </div>
+
+        <div x-show="!inventoryProductsLoading && inventoryProducts.length" class="table-scroll table-wide">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Nombre</th>
+                <th>Principio activo</th>
+                <th>Categoría</th>
+                <th>Receta</th>
+                <th>Stock total</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <template x-for="product in inventoryProducts" :key="product.id">
+              <tbody>
+                <tr style="cursor:pointer;" @click="openInventoryProduct(product)">
+                  <td>
+                    <div class="flex items-center gap-2">
+                      <svg class="chevron" :class="{ open: product._open }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                      <span class="text-mono" x-text="product.sku"></span>
+                    </div>
+                  </td>
+                  <td style="max-width:220px;"><div class="truncate" :title="product.name" x-text="product.name"></div></td>
+                  <td x-text="product.activeIngredient || '—'"></td>
+                  <td x-text="product.category || '—'"></td>
+                  <td><span class="badge" :class="product.requiresPrescription ? 'badge-amber' : 'badge-gray'" x-text="product.requiresPrescription ? 'Sí' : 'No'"></span></td>
+                  <td x-text="product.stock.reduce((sum, s) => sum + s.quantity, 0)"></td>
+                  <td><span class="badge" :class="product.isActive ? 'badge-green' : 'badge-gray'" x-text="product.isActive ? 'Activo' : 'Inactivo'"></span></td>
+                </tr>
+
+                <tr x-show="product._open" @click.stop>
+                  <td colspan="7" style="background:var(--panel-soft);">
+                    <div class="article-detail" style="margin-top:0;border-top:none;padding-top:4px;">
+
+                      <div class="article-detail-label">Datos del producto</div>
+                      <div class="inline-form" style="padding:0 0 12px;">
+                        <div class="field">
+                          <label class="label">Nombre</label>
+                          <input type="text" class="input" x-model="product._editedName" />
+                        </div>
+                        <div class="field">
+                          <label class="label">Principio activo</label>
+                          <input type="text" class="input" x-model="product._editedActiveIngredient" />
+                        </div>
+                        <div class="field">
+                          <label class="label">Categoría</label>
+                          <input type="text" class="input" x-model="product._editedCategory" />
+                        </div>
+                      </div>
+                      <div class="field mb-3">
+                        <label class="label">Descripción</label>
+                        <textarea class="input textarea" x-model="product._editedDescription"></textarea>
+                      </div>
+                      <div class="flex items-center gap-2 mb-3" style="flex-wrap:wrap;">
+                        <label class="flex items-center gap-2"><input type="checkbox" x-model="product._editedRequiresPrescription" /> Requiere receta médica</label>
+                        <label class="flex items-center gap-2"><input type="checkbox" x-model="product._editedIsActive" /> Producto activo (visible para el chatbot)</label>
+                      </div>
+                      <button class="btn btn-primary btn-sm mb-4" @click="saveInventoryProduct(product)" :disabled="product._saveBusy">
+                        <span x-show="product._saveBusy" class="spin"></span>
+                        Guardar producto
+                      </button>
+
+                      <div class="article-detail-label">Stock y precio por sucursal</div>
+                      <template x-for="stockRow in product._stockByBranch" :key="stockRow.branchId">
+                        <div class="mb-3" style="background:#fff;border:1px solid var(--line);border-radius:11px;padding:12px 14px;">
+                          <div class="flex items-center justify-between mb-3" style="flex-wrap:wrap;gap:8px;">
+                            <strong x-text="stockRow.branchName"></strong>
+                            <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+                              <div class="field" style="margin-bottom:0;">
+                                <label class="label">Cantidad</label>
+                                <input type="number" min="0" class="input" style="width:100px;" x-model="stockRow.quantity" />
+                              </div>
+                              <div class="field" style="margin-bottom:0;">
+                                <label class="label">Precio</label>
+                                <input type="number" min="0" step="0.01" class="input" style="width:120px;" x-model="stockRow.price" />
+                              </div>
+                              <button class="btn btn-secondary btn-sm" @click="saveInventoryStock(product, stockRow)" :disabled="stockRow._busy">
+                                <span x-show="stockRow._busy" class="spin dark"></span>
+                                Guardar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+                      <p x-show="!product._stockByBranch?.length" class="muted">Crea una sucursal arriba para poder registrar stock.</p>
+
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </template>
+          </table>
+        </div>
+
+        <div x-show="!inventoryProductsLoading && inventoryMeta.totalPages > 1" class="pagination">
+          <span class="muted" x-text="`Página ${inventoryPage} de ${inventoryMeta.totalPages} (${inventoryMeta.total} en total)`"></span>
+          <div class="flex gap-2 items-center">
+            <button class="btn btn-secondary btn-sm" @click="goToInventoryPage(inventoryPage - 1)" :disabled="inventoryPage <= 1">Anterior</button>
+            <button class="btn btn-secondary btn-sm" @click="goToInventoryPage(inventoryPage + 1)" :disabled="inventoryPage >= inventoryMeta.totalPages">Siguiente</button>
+          </div>
+        </div>
+      </div>

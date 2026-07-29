@@ -1,7 +1,9 @@
 import { join } from 'path';
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ConfigModule } from './config/config.module';
 import { HealthController } from './health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
@@ -21,6 +23,9 @@ import { PublishModule } from './publish/publish.module';
 import { PromptsModule } from './prompts/prompts.module';
 import { PipelineStatusModule } from './pipeline-status/pipeline-status.module';
 import { BlogModule } from './blog/blog.module';
+import { InventoryModule } from './inventory/inventory.module';
+import { ChatbotModule } from './chatbot/chatbot.module';
+import { OrdersModule } from './orders/orders.module';
 
 @Module({
   imports: [
@@ -32,10 +37,35 @@ import { BlogModule } from './blog/blog.module';
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', '..', 'public'),
       renderPath: '*path',
-      exclude: ['/auth/(.*)', '/validation/(.*)', '/sources/(.*)', '/publish/(.*)', '/articles/(.*)', '/articles', '/health', '/prompts/(.*)', '/prompts', '/pipeline/(.*)', '/blog/(.*)', '/blog'],
+      exclude: [
+        '/auth/(.*)',
+        '/validation/(.*)',
+        '/sources/(.*)',
+        '/publish/(.*)',
+        '/articles/(.*)',
+        '/articles',
+        '/health',
+        '/prompts/(.*)',
+        '/prompts',
+        '/pipeline/(.*)',
+        '/blog/(.*)',
+        '/blog',
+        '/inventory/(.*)',
+        '/inventory',
+        '/chatbot/(.*)',
+        '/chatbot',
+        '/orders/(.*)',
+        '/orders',
+      ],
       serveStaticOptions: { index: 'index.html', fallthrough: true },
     }),
 
+    // Freno generico contra abuso en endpoints de entrada -- primer uso es
+    // el chatbot publico (unico endpoint sin JwtAuthGuard/ApiKeyGuard de
+    // todo el backend). Default global generoso (no afecta al panel admin
+    // autenticado en uso normal); el controller del chatbot aplica su
+    // propio limite mas estricto con @Throttle().
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     ScheduleModule.forRoot(),
     PrismaModule,
     AuditModule,
@@ -54,7 +84,11 @@ import { BlogModule } from './blog/blog.module';
     PromptsModule,
     PipelineStatusModule,
     BlogModule,
+    InventoryModule,
+    ChatbotModule,
+    OrdersModule,
   ],
   controllers: [HealthController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
