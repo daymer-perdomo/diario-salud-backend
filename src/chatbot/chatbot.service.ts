@@ -90,12 +90,13 @@ export class ChatbotService {
       const facts = await this.gatherFacts(intent);
       const composed = await this.llm.composeChatReply({ message: params.message, facts });
       reply = this.applySafetyGuard(composed.reply);
-      // Mas de un producto encontrado -> se muestran en tabla en vez de
-      // texto (ver checkin con el usuario). La tabla sale directo de
-      // `facts` (lookup determinista), NUNCA de lo que redacto el LLM --
-      // mismo principio de todo el pipeline: el LLM no es fuente de
-      // verdad de precio/stock.
-      if (facts.products.length > 1) {
+      // Cualquier producto encontrado se manda como datos estructurados
+      // (1-2 -> tarjetas con imagen, 3+ -> tabla, ver renderProductsCards/
+      // renderProductsTable en el widget) en vez de solo texto (ver
+      // checkin con el usuario). Sale directo de `facts` (lookup
+      // determinista), NUNCA de lo que redacto el LLM -- mismo principio
+      // de todo el pipeline: el LLM no es fuente de verdad de precio/stock.
+      if (facts.products.length >= 1) {
         products = this.buildProductsTable(facts.products);
       }
       // Determinista, no queda a criterio del LLM (ver comentario de

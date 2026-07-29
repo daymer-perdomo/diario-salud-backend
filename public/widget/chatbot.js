@@ -86,6 +86,19 @@
     .add-btn { background: ${BRAND_BLUE}; color: #fff; border: none; border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; margin-top: 4px; }
     .add-btn:disabled { opacity: .5; cursor: default; }
     .row-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+    .products-cards { align-self: stretch; display: flex; gap: 10px; flex-wrap: wrap; }
+    .product-card {
+      flex: 1 1 45%; min-width: 130px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .product-card .thumb { width: 100%; height: 96px; object-fit: cover; background: #f1f5f9; display: block; }
+    .product-card-body { padding: 10px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
+    .product-card-name { font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+    .product-card-lab { color: #64748b; font-size: 10.5px; }
+    .product-card-price { font-size: 15px; font-weight: 700; color: ${BRAND_BLUE}; margin-top: 4px; }
+    .product-card-stock { font-size: 10.5px; color: #64748b; }
+    .product-card .row-actions { flex-direction: row; align-items: center; margin-top: 6px; }
+    .product-card .add-btn { flex: 1; padding: 6px 8px; border-radius: 20px; font-size: 12px; }
     .cart-bar { border-top: 1px solid #e2e8f0; background: #fff; }
     .cart-bar.hidden { display: none; }
     .cart-summary { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; cursor: pointer; font-size: 12px; color: #1e293b; }
@@ -491,6 +504,65 @@
       }
     }
 
+    // 1-2 productos -> tarjetas con imagen grande (pedido explicito del
+    // usuario, con captura de referencia); 3+ -> renderProductsTable, una
+    // fila por producto se ve mas compacta que 3+ tarjetas apiladas.
+    function renderProductsCards(products) {
+      var wrap = document.createElement('div');
+      wrap.className = 'products-cards';
+
+      products.forEach(function (p) {
+        var card = document.createElement('div');
+        card.className = 'product-card';
+
+        var thumb = document.createElement('img');
+        thumb.className = 'thumb';
+        thumb.src = p.imageUrl;
+        thumb.alt = '';
+        thumb.loading = 'lazy';
+        card.appendChild(thumb);
+
+        var body = document.createElement('div');
+        body.className = 'product-card-body';
+        body.innerHTML =
+          '<div class="product-card-name">' + escapeHtml(p.name) + '</div>' +
+          (p.labName ? '<div class="product-card-lab">' + escapeHtml(p.labName) + '</div>' : '') +
+          (p.requiresPrescription ? '<div class="rx">Requiere receta</div>' : '') +
+          '<div class="product-card-price">' + formatPrice(p.price) + '</div>' +
+          '<div class="product-card-stock">Stock: ' + escapeHtml(p.stock) + '</div>';
+
+        if (p.stock > 0) {
+          var qtyInput = document.createElement('input');
+          qtyInput.type = 'number';
+          qtyInput.className = 'qty-input';
+          qtyInput.min = '1';
+          qtyInput.max = String(p.stock);
+          qtyInput.value = '1';
+
+          var addBtn = document.createElement('button');
+          addBtn.type = 'button';
+          addBtn.className = 'add-btn';
+          addBtn.textContent = 'Agregar';
+          addBtn.addEventListener('click', function () {
+            var qty = parseInt(qtyInput.value, 10);
+            if (!qty || qty < 1) qty = 1;
+            addToCart(p.sku, qty, p.name);
+          });
+
+          var actionsWrap = document.createElement('div');
+          actionsWrap.className = 'row-actions';
+          actionsWrap.appendChild(qtyInput);
+          actionsWrap.appendChild(addBtn);
+          body.appendChild(actionsWrap);
+        }
+
+        card.appendChild(body);
+        wrap.appendChild(card);
+      });
+
+      return wrap;
+    }
+
     // Laboratorio va como subtitulo del nombre (no columna aparte) --
     // con 5 columnas en un panel angosto el nombre del producto quedaba
     // aplastado a una palabra por linea (feedback real del usuario).
@@ -604,9 +676,10 @@
           localStorage.setItem(STORAGE_KEY, conversationId);
         } catch (e) {}
         appendMessage(body.reply, 'bot');
-        if (Array.isArray(body.products) && body.products.length > 1) {
-          var table = renderProductsTable(body.products);
-          messagesEl.appendChild(table);
+        if (Array.isArray(body.products) && body.products.length > 0) {
+          var productsEl =
+            body.products.length <= 2 ? renderProductsCards(body.products) : renderProductsTable(body.products);
+          messagesEl.appendChild(productsEl);
           messagesEl.scrollTop = messagesEl.scrollHeight;
         }
         if (isNewConversation) refreshCart();
