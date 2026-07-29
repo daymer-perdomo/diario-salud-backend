@@ -78,11 +78,16 @@ export class WoocommerceImageSyncService implements OnModuleInit {
     this.syncing = true;
     try {
       const batchSize = this.config.get<number>('WOOCOMMERCE_IMAGE_SYNC_BATCH_SIZE') ?? 100;
+      // orderBy id (no updatedAt): DistrimonacoSyncService toca el
+      // updatedAt de TODOS los productos en cada una de sus corridas, asi
+      // que ordenar por updatedAt hacia estos candidatos no garantiza
+      // avanzar -- con id (estable) cada corrida cubre el siguiente lote
+      // real, sin repetir ni saltarse productos entre ejecuciones.
       const candidates = await this.prisma.product.findMany({
         where: { imageUrl: null, isActive: true },
         select: { id: true, sku: true },
         take: batchSize,
-        orderBy: { updatedAt: 'desc' },
+        orderBy: { id: 'asc' },
       });
 
       let updated = 0;
