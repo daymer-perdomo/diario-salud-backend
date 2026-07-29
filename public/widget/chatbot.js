@@ -32,22 +32,20 @@
 
   var STYLES = `
     :host, * { box-sizing: border-box; }
-    /* bottom:170px (no 20px): en movil el sitio tiene una barra de
-       navegacion inferior fija (nsdK4mP8xQ2vMobileDock, ~75px) y encima
-       de ella flota el boton del carrito (xoo-wsc-basket) -- con 20px el
-       FAB del chatbot queda tapado por esa barra y superpuesto al
-       carrito (ver reporte del usuario con captura). 170px lo deja por
-       encima de ambos, verificado contra las posiciones reales en
-       ecofarma.co (ver conversacion). */
+    /* bottom:20px es solo el valor de arranque -- positionAboveCart() lo
+       corrige en caliente si detecta el boton flotante del carrito
+       (.xoo-wsc-basket) para que el FAB quede siempre justo encima de el,
+       sin importar el dispositivo o si el tema tiene una barra de
+       navegacion movil debajo (ver esa funcion mas abajo). */
     .fab {
-      position: fixed; bottom: 170px; right: 20px; width: 56px; height: 56px; border-radius: 50%;
+      position: fixed; bottom: 20px; right: 20px; width: 56px; height: 56px; border-radius: 50%;
       background: ${BRAND_BLUE}; color: #fff; border: none; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.2);
       display: flex; align-items: center; justify-content: center; z-index: 999999; font-size: 24px;
     }
     .fab:hover { background: ${BRAND_BLUE_DARK}; }
     .fab img { width: 30px; height: auto; }
     .panel {
-      position: fixed; bottom: 238px; right: 20px; width: 440px; max-width: calc(100vw - 32px);
+      position: fixed; bottom: 88px; right: 20px; width: 440px; max-width: calc(100vw - 32px);
       height: 560px; max-height: calc(100vh - 120px); background: #fff; border-radius: 14px;
       box-shadow: 0 10px 40px rgba(0,0,0,.25); display: flex; flex-direction: column; overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; z-index: 999999;
@@ -168,6 +166,39 @@
       '<button type="button" class="send-btn">Enviar</button>' +
       '</div>';
     root.appendChild(panel);
+
+    /// Reposiciona el FAB (y el panel, que cuelga de el) justo encima del
+    /// boton flotante del carrito del tema (.xoo-wsc-basket) cuando existe
+    /// -- evita superponerse con el, sin depender de un numero de pixeles
+    /// fijo que varia entre desktop/movil o si el tema agrega una barra de
+    /// navegacion inferior (ver conversacion con el usuario: un valor fijo
+    /// quedaba bien en un dispositivo y mal en otro). GAP_ABOVE_CART es a
+    /// proposito chico (12px): el pedido explicito fue "dejalo mas cerca".
+    var GAP_ABOVE_CART = 12;
+    var FALLBACK_BOTTOM = 20;
+    function positionAboveCart() {
+      var basket = document.querySelector('.xoo-wsc-basket');
+      var bottom = FALLBACK_BOTTOM;
+      if (basket) {
+        var rect = basket.getBoundingClientRect();
+        if (rect.height > 0) {
+          bottom = Math.round(window.innerHeight - rect.top) + GAP_ABOVE_CART;
+        }
+      }
+      fab.style.bottom = bottom + 'px';
+      panel.style.bottom = bottom + 68 + 'px';
+    }
+    positionAboveCart();
+    // El carrito lateral puede montarse despues de que corre este script
+    // (footer vs su propio hook) -- un par de reintentos cortos alcanza
+    // sin quedar reconsultando el DOM indefinidamente.
+    setTimeout(positionAboveCart, 600);
+    setTimeout(positionAboveCart, 1800);
+    var resizeTimer;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(positionAboveCart, 200);
+    });
 
     var messagesEl = panel.querySelector('.messages');
     var inputEl = panel.querySelector('input');
