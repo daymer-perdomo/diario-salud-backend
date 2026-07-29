@@ -33,6 +33,7 @@ interface ProductFact {
   name: string;
   labName: string | null;
   requiresPrescription: boolean;
+  imageUrl: string | null;
   stockByBranch: Array<{ branch: string; quantity: number; price: number }>;
 }
 
@@ -162,6 +163,7 @@ export class ChatbotService {
           activeIngredient: product.activeIngredient,
           category: product.category,
           requiresPrescription: product.requiresPrescription,
+          imageUrl: product.imageUrl,
           stockByBranch: stockRows.map((s) => ({ branch: s.branch.name, quantity: s.quantity, price: Number(s.price) })),
           alternatives: alternatives.map((a) => ({
             sku: a.sku,
@@ -192,7 +194,7 @@ export class ChatbotService {
         price: p.stockByBranch[0]?.price ?? null,
         stock: totalStock,
         requiresPrescription: p.requiresPrescription,
-        imageUrl: DEFAULT_PRODUCT_IMAGE_URL,
+        imageUrl: p.imageUrl ?? DEFAULT_PRODUCT_IMAGE_URL,
       };
     });
   }

@@ -70,6 +70,20 @@ export const envSchema = z.object({
   /// consolidado o una bodega especifica (ver plan).
   DISTRIMONACO_BRANCH_CODE: z.string().default('PRINCIPAL'),
 
+  /// Backfill de Product.imageUrl contra la API REST de WooCommerce (ver
+  /// WoocommerceImageSyncService). El sku local (=CodigoBarras de
+  /// Distrimonaco) coincide exacto con el sku de WooCommerce para la
+  /// gran mayoria del catalogo (verificado: 29/30 en una muestra
+  /// aleatoria) -- match exacto de sku, nunca por nombre, para no
+  /// arriesgarse a mostrar la imagen de una presentacion/dosis
+  /// equivocada. Sin credenciales definidas, el backfill se omite (no
+  /// rompe el arranque) y el chatbot sigue usando la imagen generica.
+  WOOCOMMERCE_API_URL: z.string().url().optional(),
+  WOOCOMMERCE_CONSUMER_KEY: z.string().optional(),
+  WOOCOMMERCE_CONSUMER_SECRET: z.string().optional(),
+  WOOCOMMERCE_IMAGE_SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(10),
+  WOOCOMMERCE_IMAGE_SYNC_BATCH_SIZE: z.coerce.number().int().positive().default(100),
+
   PORT: z.coerce.number().int().positive().default(3000),
   /// 'staging' es un ambiente real y distinto de 'production' -- probar
   /// cambios de pipeline/schema contra una base de datos separada antes

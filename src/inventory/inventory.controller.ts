@@ -12,6 +12,7 @@ import { UpdateBranchDto } from './dto/update-branch.dto';
 import { CreateSynonymDto } from './dto/create-synonym.dto';
 import { UpdateSynonymDto } from './dto/update-synonym.dto';
 import { DistrimonacoSyncService } from './distrimonaco-sync.service';
+import { WoocommerceImageSyncService } from './woocommerce-image-sync.service';
 
 /// Panel admin de mantenimiento manual de inventario entre importaciones
 /// masivas de Excel (ver scripts/import-inventory-master.ts) -- mismo
@@ -25,6 +26,7 @@ export class InventoryController {
   constructor(
     private readonly inventoryService: InventoryService,
     private readonly distrimonacoSync: DistrimonacoSyncService,
+    private readonly woocommerceImageSync: WoocommerceImageSyncService,
   ) {}
 
   @Get('products')
@@ -76,6 +78,15 @@ export class InventoryController {
   @Roles(UserRole.ADMIN)
   syncNow() {
     return this.distrimonacoSync.syncNow();
+  }
+
+  /// Dispara el backfill de imagenes contra WooCommerce de inmediato en
+  /// vez de esperar al intervalo programado (ver
+  /// WoocommerceImageSyncService) -- mismo espiritu que POST /sync-now.
+  @Post('sync-images-now')
+  @Roles(UserRole.ADMIN)
+  syncImagesNow() {
+    return this.woocommerceImageSync.syncNow();
   }
 
   @Get('sync-runs')

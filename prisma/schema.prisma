@@ -603,6 +603,14 @@ model Product {
   sourceFile String?
   sourceRow  Int?
 
+  // Llenado por WoocommerceImageSyncService via match exacto de sku
+  // contra la API REST de WooCommerce. NULL significa "todavia no se
+  // encontro" (candidato a reintento), no "sin imagen" -- el chatbot usa
+  // DEFAULT_PRODUCT_IMAGE_URL como fallback cuando es NULL, nunca lo
+  // persiste aca (mismo patron que Article.imageUrl, ver
+  // default-article-image.util.ts).
+  imageUrl String?
+
   stock      ProductStock[]
   orderItems OrderRequestItem[]
 
