@@ -149,17 +149,24 @@ export class InventoryService {
   /// productQuery que extractChatIntent saco del mensaje del cliente.
   /// `take` bajo a proposito: el LLM que compone la respuesta no debe
   /// recibir decenas de resultados ambiguos, mejor pocos y precisos.
+  /// Devuelve tambien `wasCategoryMatch` -- true si `term` calzo contra el
+  /// diccionario de sinonimos (ver resolveSynonyms), osea que el cliente
+  /// pregunto por una categoria/sintoma (ej. "para los pies") y no por un
+  /// producto puntual. ChatbotService usa esta bandera para agregar
+  /// SIEMPRE, de forma determinista, el aviso de "esto no es una
+  /// formulacion medica" -- pedido explicito del usuario 2026-07-29.
   async searchProducts(term: string, take = 5) {
     const relatedTerms = await this.resolveSynonyms(term);
     const allTerms = [term, ...relatedTerms];
+    const wasCategoryMatch = relatedTerms.length > 0;
     // Una busqueda por categoria/sintoma (ej. "hongos" -> Clotrimazol,
     // Fluconazol, Ketoconazol...) suele calzar con muchos productos
     // reales a la vez -- pedido explicito del usuario 2026-07-29: nunca
     // mostrar mas de 3 en ese caso, aunque una busqueda literal normal
     // siga permitiendo hasta `take`.
-    const effectiveTake = relatedTerms.length > 0 ? Math.min(take, 3) : take;
+    const effectiveTake = wasCategoryMatch ? Math.min(take, 3) : take;
 
-    return this.prisma.product.findMany({
+    const products = await this.prisma.product.findMany({
       where: {
         isActive: true,
         OR: allTerms.flatMap((t) => [
@@ -172,6 +179,8 @@ export class InventoryService {
       orderBy: { name: 'asc' },
       take: effectiveTake,
     });
+
+    return { products, wasCategoryMatch };
   }
 
   /// Alternativas por mismo principio activo (nunca por nombre parecido)

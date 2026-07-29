@@ -5,6 +5,7 @@ import { LLM_SERVICE, LlmService } from '../llm/llm.service.interface';
 import { ChatIntentOutput } from '../llm/schemas/chat-intent.schema';
 import { InventoryService } from '../inventory/inventory.service';
 import { checkRegexRules } from '../compliance/compliance-rules';
+import { DEFAULT_PRODUCT_IMAGE_URL } from '../common/default-product-image.util';
 
 const HISTORY_TURNS = 6;
 
@@ -17,6 +18,15 @@ const GREETING_REPLY =
 
 const SAFETY_FALLBACK_REPLY =
   'Prefiero no responder eso directamente -- te recomiendo confirmarlo con nuestro farmacéuta en sucursal.';
+
+/// Se agrega SIEMPRE (nunca queda a criterio del LLM) cuando el cliente
+/// pregunto por una categoria/sintoma (ej. "para los pies", "para
+/// hongos") y se le muestran productos -- pedido explicito del usuario
+/// 2026-07-29: "no debe formular... siempre le decimos al usuario que
+/// esto no es una formulacion, son los productos que tenemos".
+const CATEGORY_SEARCH_DISCLAIMER =
+  '\n\nEsto no es una formulación médica -- son los productos que tenemos disponibles para esa categoría. ' +
+  'Si necesitas una formulación o recomendación de tratamiento, consulta a tu médico.';
 
 interface ProductFact {
   sku: string;
@@ -33,6 +43,7 @@ export interface ProductTableRow {
   price: number | null;
   stock: number;
   requiresPrescription: boolean;
+  imageUrl: string;
 }
 
 /// Orquesta el pipeline de 3 pasos del plan (kind-giggling-cerf.md):
@@ -87,6 +98,17 @@ export class ChatbotService {
       if (facts.products.length > 1) {
         products = this.buildProductsTable(facts.products);
       }
+      // Determinista, no queda a criterio del LLM (ver comentario de
+      // CATEGORY_SEARCH_DISCLAIMER). Dos señales, cualquiera basta: el
+      // clasificador de intencion dijo que la pregunta es por
+      // categoria/sintoma (intent.isCategoryQuery, ej. "gripa" que
+      // matchea por texto literal sin pasar por el diccionario) O la
+      // busqueda calzo por el diccionario de sinonimos (wasCategoryMatch,
+      // ej. "hongos" -> Clotrimazol). Solo aplica si ademas se encontro
+      // algo que mostrar.
+      if ((intent.isCategoryQuery || facts.wasCategoryMatch) && facts.products.length > 0) {
+        reply += CATEGORY_SEARCH_DISCLAIMER;
+      }
     }
 
     await this.prisma.chatMessage.create({
@@ -107,9 +129,14 @@ export class ChatbotService {
 
   private async gatherFacts(intent: ChatIntentOutput) {
     const term = intent.productQuery?.trim();
-    if (!term) return { query: null, products: [] };
+    if (!term) return { query: null, products: [], wasCategoryMatch: false };
 
-    const products = await this.inventory.searchProducts(term, 5);
+    // isCategoryQuery del LLM tambien limita a 3 (ademas del limite que ya
+    // aplica InventoryService cuando calza por el diccionario de
+    // sinonimos) -- mismo pedido del usuario 2026-07-29 de nunca mostrar
+    // mas de 3 en una busqueda por categoria/sintoma, sin importar por
+    // cual de las dos señales se detecto.
+    const { products, wasCategoryMatch } = await this.inventory.searchProducts(term, intent.isCategoryQuery ? 3 : 5);
     const branchFilter = intent.branchQuery?.trim().toLowerCase();
 
     const products_ = await Promise.all(
@@ -145,7 +172,7 @@ export class ChatbotService {
       }),
     );
 
-    return { query: term, branchQuery: intent.branchQuery, products: products_ };
+    return { query: term, branchQuery: intent.branchQuery, products: products_, wasCategoryMatch };
   }
 
   /// Toma la PRIMERA fila de stockByBranch para precio/cantidad -- hoy
@@ -164,6 +191,7 @@ export class ChatbotService {
         price: p.stockByBranch[0]?.price ?? null,
         stock: totalStock,
         requiresPrescription: p.requiresPrescription,
+        imageUrl: DEFAULT_PRODUCT_IMAGE_URL,
       };
     });
   }

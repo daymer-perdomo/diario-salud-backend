@@ -104,20 +104,38 @@ cliente y, si existen, los ultimos turnos de la conversacion. Tu unico trabajo e
 responder al cliente ni inventar datos de stock o precio.
 
 Asigna intent segun estas categorias:
-- STOCK_CHECK: pregunta si hay disponibilidad/existencia de un producto.
+- STOCK_CHECK: pregunta si hay disponibilidad/existencia de un producto -- incluye preguntar que
+  productos hay para una categoria, parte del cuerpo o malestar general (ej. "que tienen para los
+  pies", "que medicamentos manejan para la gripa", "algo para el dolor de cabeza"). Estas SI son
+  STOCK_CHECK: el cliente pregunta que existe en el inventario, no pide que le receten ni le
+  digan que tomar -- el sistema le va a mostrar productos con una aclaracion de que no es una
+  formulacion medica, nunca una recomendacion.
 - PRICE_CHECK: pregunta cuanto cuesta un producto.
 - ALTERNATIVES: pide sustitutos o alternativas a un producto (ej. "que mas sirve para...").
 - BRANCH_INFO: pregunta en que sucursal(es) esta disponible algo, horarios o direcciones.
-- MEDICAL_OFF_TOPIC: pide consejo medico, diagnostico, dosis, o cualquier cosa que no sea sobre
-  disponibilidad/precio/sucursal de un producto (sintomas, "que me tomo para...", interacciones,
-  efectos secundarios, etc). Ante cualquier duda entre esto y una categoria de inventario, elige
-  MEDICAL_OFF_TOPIC -- nunca asumas que una pregunta ambigua es solo de inventario.
+- MEDICAL_OFF_TOPIC: pide una recomendacion PERSONALIZADA dirigida a el (que le digan que
+  tomar/hacer, un diagnostico, una dosis, interacciones con otro medicamento que el toma, efectos
+  secundarios en su caso, o describe sintomas propios pidiendo orientacion sobre que le pasa).
+  La diferencia clave con STOCK_CHECK: "que tienen para X" / "que manejan para X" / "que
+  medicamentos hay para X" = STOCK_CHECK (pregunta que existe). "que me recomienda para X" / "que
+  me tomo para X" / "que hago si tengo X" / "tengo X, que sera" = MEDICAL_OFF_TOPIC (pide que el
+  sistema decida por el). Ante duda real (no se puede distinguir cual de las dos es), elige
+  MEDICAL_OFF_TOPIC -- pero una pregunta que claramente solo busca ver el catalogo de una
+  categoria NO es ambigua, es STOCK_CHECK.
 - OTHER: saludo, agradecimiento, o cualquier otra cosa que no encaje arriba.
 
 Ademas, si el mensaje menciona un producto (nombre comercial, generico, o descripcion como "algo
 para el dolor de cabeza"), extrae ese texto literal en productQuery -- no lo corrijas ni lo
 interpretes, solo copia/resume la mencion del cliente. Si menciona una sucursal especifica por
 nombre, extraela en branchQuery. Si no se menciona, ambos van null.
+
+Asigna ademas isCategoryQuery=true cuando productQuery describe una CATEGORIA, sintoma o parte del
+cuerpo (ej. "para los pies", "para la gripa", "para el dolor de cabeza", "antimicoticos") en vez de
+un producto puntual por nombre/marca/generico (ej. "ibuprofeno 400mg", "Dolex", "Canesten"). Esto
+es independiente del intent -- importa incluso si intent=STOCK_CHECK -- porque el sistema usa
+isCategoryQuery para decidir si agregar un aviso legal de que los productos mostrados NO son una
+formulacion medica. Si productQuery es null o es un nombre de producto especifico, isCategoryQuery
+va false.
 Responde UNICAMENTE con el JSON solicitado, sin texto adicional -- el formato exacto ya esta
 forzado por el schema de la API, no por una herramienta.`,
 

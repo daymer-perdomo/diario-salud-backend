@@ -32,15 +32,22 @@
 
   var STYLES = `
     :host, * { box-sizing: border-box; }
+    /* bottom:170px (no 20px): en movil el sitio tiene una barra de
+       navegacion inferior fija (nsdK4mP8xQ2vMobileDock, ~75px) y encima
+       de ella flota el boton del carrito (xoo-wsc-basket) -- con 20px el
+       FAB del chatbot queda tapado por esa barra y superpuesto al
+       carrito (ver reporte del usuario con captura). 170px lo deja por
+       encima de ambos, verificado contra las posiciones reales en
+       ecofarma.co (ver conversacion). */
     .fab {
-      position: fixed; bottom: 20px; right: 20px; width: 56px; height: 56px; border-radius: 50%;
+      position: fixed; bottom: 170px; right: 20px; width: 56px; height: 56px; border-radius: 50%;
       background: ${BRAND_BLUE}; color: #fff; border: none; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.2);
       display: flex; align-items: center; justify-content: center; z-index: 999999; font-size: 24px;
     }
     .fab:hover { background: ${BRAND_BLUE_DARK}; }
     .fab img { width: 30px; height: auto; }
     .panel {
-      position: fixed; bottom: 88px; right: 20px; width: 440px; max-width: calc(100vw - 32px);
+      position: fixed; bottom: 238px; right: 20px; width: 440px; max-width: calc(100vw - 32px);
       height: 560px; max-height: calc(100vh - 120px); background: #fff; border-radius: 14px;
       box-shadow: 0 10px 40px rgba(0,0,0,.25); display: flex; flex-direction: column; overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; z-index: 999999;
@@ -69,10 +76,12 @@
     .products-table th, .products-table td { padding: 7px 8px; text-align: left; border-bottom: 1px solid #eef2f6; vertical-align: top; }
     .products-table th { background: #f1f5f9; color: #334155; font-weight: 600; font-size: 11px; }
     .products-table tr:last-child td { border-bottom: none; }
-    .products-table col.col-name { width: 46%; }
+    .products-table col.col-image { width: 40px; }
+    .products-table col.col-name { width: 42%; }
     .products-table col.col-price { width: 20%; }
     .products-table col.col-stock { width: 12%; }
     .products-table col.col-actions { width: 22%; }
+    .products-table .thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 6px; background: #f1f5f9; display: block; }
     .products-table .name { font-weight: 600; word-wrap: break-word; }
     .products-table .lab { color: #64748b; font-size: 10.5px; margin-top: 2px; }
     .products-table .rx { color: #b45309; font-size: 10px; margin-top: 2px; }
@@ -461,16 +470,25 @@
 
       var colgroup = document.createElement('colgroup');
       colgroup.innerHTML =
-        '<col class="col-name" /><col class="col-price" /><col class="col-stock" /><col class="col-actions" />';
+        '<col class="col-image" /><col class="col-name" /><col class="col-price" /><col class="col-stock" /><col class="col-actions" />';
       table.appendChild(colgroup);
 
       var thead = document.createElement('thead');
-      thead.innerHTML = '<tr><th>Producto</th><th>Precio</th><th>Stock</th><th></th></tr>';
+      thead.innerHTML = '<tr><th></th><th>Producto</th><th>Precio</th><th>Stock</th><th></th></tr>';
       table.appendChild(thead);
 
       var tbody = document.createElement('tbody');
       products.forEach(function (p) {
         var tr = document.createElement('tr');
+
+        var imageTd = document.createElement('td');
+        var thumb = document.createElement('img');
+        thumb.className = 'thumb';
+        thumb.src = p.imageUrl;
+        thumb.alt = '';
+        thumb.loading = 'lazy';
+        imageTd.appendChild(thumb);
+        tr.appendChild(imageTd);
 
         var nameTd = document.createElement('td');
         nameTd.innerHTML =
