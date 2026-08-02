@@ -56,7 +56,7 @@ export class WoocommerceImageSyncService implements OnModuleInit {
   private async lookupImageBySku(sku: string): Promise<string | null> {
     const baseUrl = this.config.get<string>('WOOCOMMERCE_API_URL')!;
     const res = await fetch(`${baseUrl}/products?sku=${encodeURIComponent(sku)}`, {
-      headers: { Authorization: this.authHeader() },
+      headers: { Authorization: this.authHeader(), 'User-Agent': 'EcoFarma-Backend/1.0 (+https://ecofarma.co)' },
     });
     if (!res.ok) {
       throw new Error(`WooCommerce API error (${res.status}): ${await res.text()}`);

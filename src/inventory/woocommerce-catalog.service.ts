@@ -55,6 +55,17 @@ export class WoocommerceCatalogService {
     return 'Basic ' + Buffer.from(`${key}:${secret}`).toString('base64');
   }
 
+  /// Node/undici no manda User-Agent por defecto -- una senal comun de
+  /// "bot" para firewalls tipo Cloudflare (ver bloqueo real 2026-08-02,
+  /// Ray ID a25033aa38ca5509, IP de Render bloqueada por el WAF de
+  /// ecofarma.co). Esto no garantiza esquivar un bloqueo explicito por
+  /// IP, pero es la unica mitigacion posible desde el codigo -- el
+  /// arreglo real es que el admin del Cloudflare de ecofarma.co
+  /// permita la IP de salida de Render (ver panel de Render > Connect).
+  private requestHeaders(extra: Record<string, string> = {}): Record<string, string> {
+    return { Authorization: this.authHeader(), 'User-Agent': 'EcoFarma-Backend/1.0 (+https://ecofarma.co)', ...extra };
+  }
+
   private toSummary(p: WoocommerceProductApiResponse): WoocommerceProductSummary {
     return {
       id: p.id,
@@ -78,7 +89,7 @@ export class WoocommerceCatalogService {
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl()}/products?${params}`, {
-        headers: { Authorization: this.authHeader() },
+        headers: this.requestHeaders(),
       });
     } catch (err) {
       throw new BadGatewayException(`No se pudo conectar con WooCommerce: ${(err as Error).message}`);
@@ -111,7 +122,7 @@ export class WoocommerceCatalogService {
     try {
       res = await fetch(`${this.baseUrl()}/products/${productId}`, {
         method: 'PUT',
-        headers: { Authorization: this.authHeader(), 'Content-Type': 'application/json' },
+        headers: this.requestHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(data),
       });
     } catch (err) {
