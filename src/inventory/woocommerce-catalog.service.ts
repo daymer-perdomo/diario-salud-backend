@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -68,12 +68,23 @@ export class WoocommerceCatalogService {
     };
   }
 
+  /// Nunca deja que un fallo de red o de la API de WooCommerce se
+  /// convierta en un 500 opaco -- BadGatewayException expone el mensaje
+  /// real (auth, DNS, timeout, lo que sea) al cliente y al log, en vez de
+  /// que NestJS lo enmascare como "Internal server error" (bug real
+  /// encontrado 2026-08-02 en produccion: un fallo real de WooCommerce
+  /// era indistinguible de un bug del backend).
   private async fetchProducts(params: string): Promise<WoocommerceProductApiResponse[]> {
-    const res = await fetch(`${this.baseUrl()}/products?${params}`, {
-      headers: { Authorization: this.authHeader() },
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl()}/products?${params}`, {
+        headers: { Authorization: this.authHeader() },
+      });
+    } catch (err) {
+      throw new BadGatewayException(`No se pudo conectar con WooCommerce: ${(err as Error).message}`);
+    }
     if (!res.ok) {
-      throw new Error(`WooCommerce API error (${res.status}): ${await res.text()}`);
+      throw new BadGatewayException(`WooCommerce API error (${res.status}): ${await res.text()}`);
     }
     return (await res.json()) as WoocommerceProductApiResponse[];
   }
@@ -96,13 +107,18 @@ export class WoocommerceCatalogService {
   }
 
   private async updateProduct(productId: number, data: Record<string, unknown>): Promise<WoocommerceProductSummary> {
-    const res = await fetch(`${this.baseUrl()}/products/${productId}`, {
-      method: 'PUT',
-      headers: { Authorization: this.authHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl()}/products/${productId}`, {
+        method: 'PUT',
+        headers: { Authorization: this.authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+    } catch (err) {
+      throw new BadGatewayException(`No se pudo conectar con WooCommerce: ${(err as Error).message}`);
+    }
     if (!res.ok) {
-      throw new Error(`WooCommerce API error (${res.status}): ${await res.text()}`);
+      throw new BadGatewayException(`WooCommerce API error (${res.status}): ${await res.text()}`);
     }
     const p = (await res.json()) as WoocommerceProductApiResponse;
     return this.toSummary(p);
