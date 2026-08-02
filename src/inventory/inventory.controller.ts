@@ -13,6 +13,10 @@ import { CreateSynonymDto } from './dto/create-synonym.dto';
 import { UpdateSynonymDto } from './dto/update-synonym.dto';
 import { DistrimonacoSyncService } from './distrimonaco-sync.service';
 import { WoocommerceImageSyncService } from './woocommerce-image-sync.service';
+import { WoocommerceCatalogService } from './woocommerce-catalog.service';
+import { SearchWoocommerceProductsDto } from './dto/search-woocommerce-products.dto';
+import { SetWoocommerceAvailabilityDto } from './dto/set-woocommerce-availability.dto';
+import { SetWoocommerceStockStatusDto } from './dto/set-woocommerce-stock-status.dto';
 
 /// Panel admin de mantenimiento manual de inventario entre importaciones
 /// masivas de Excel (ver scripts/import-inventory-master.ts) -- mismo
@@ -27,6 +31,7 @@ export class InventoryController {
     private readonly inventoryService: InventoryService,
     private readonly distrimonacoSync: DistrimonacoSyncService,
     private readonly woocommerceImageSync: WoocommerceImageSyncService,
+    private readonly woocommerceCatalog: WoocommerceCatalogService,
   ) {}
 
   @Get('products')
@@ -121,5 +126,41 @@ export class InventoryController {
   async deleteSynonym(@Param('id') id: string) {
     await this.inventoryService.deleteSynonym(id);
     return { deleted: true };
+  }
+
+  /// Busqueda EN VIVO contra el catalogo real de WooCommerce (~42,300
+  /// productos, ver WoocommerceCatalogService) -- no hay copia local, asi
+  /// que esto siempre pega contra la API externa.
+  @Get('woocommerce/products')
+  @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
+  searchWoocommerceProducts(@Query() query: SearchWoocommerceProductsDto) {
+    return this.woocommerceCatalog.searchProducts(query.q);
+  }
+
+  /// Lista lo marcado "no disponible" desde este dashboard -- WooCommerce
+  /// no permite filtrar por catalog_visibility via su API, asi que esto
+  /// lee de la tabla local que llevamos nosotros (ver
+  /// WoocommerceCatalogService.setAvailability).
+  @Get('woocommerce/hidden-products')
+  @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
+  listHiddenWoocommerceProducts() {
+    return this.woocommerceCatalog.listHiddenProducts();
+  }
+
+  /// Marca/desmarca un producto de WooCommerce como "no disponible"
+  /// (catalog_visibility=hidden) -- independiente del stock real, ver
+  /// WoocommerceCatalogService.
+  @Patch('woocommerce/products/:id/availability')
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  setWoocommerceAvailability(@Param('id') id: string, @Body() dto: SetWoocommerceAvailabilityDto) {
+    return this.woocommerceCatalog.setAvailability(Number(id), dto.hidden);
+  }
+
+  /// Independiente del anterior -- pisa stock_status (agotado/con stock)
+  /// en vez de catalog_visibility, ver WoocommerceCatalogService.
+  @Patch('woocommerce/products/:id/stock-status')
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  setWoocommerceStockStatus(@Param('id') id: string, @Body() dto: SetWoocommerceStockStatusDto) {
+    return this.woocommerceCatalog.setStockStatus(Number(id), dto.outOfStock);
   }
 }

@@ -27,4 +27,8 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  hiddenFromCatalog?: boolean;
 }

@@ -46,7 +46,141 @@
 
         <div class="guide-tip">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          "Relevantes" e "Score promedio" salen de Scoring (IA), no de un humano. "Ingeridos" alto con "Relevantes" bajo (ej. una fuente de ciencia/estadística general) es normal -- indica que la mayoría de lo que trae esa fuente no es sobre salud, no que algo esté mal. Una fuente activa con 0 ingeridos puede significar que aún no le toca su horario diario, o que su corrida más reciente falló (ver columna "fallo(s)" en la pestaña Fuentes).
+          "Relevantes" e "Score promedio" salen de Scoring (IA), no de un humano. "Ingeridos" alto con "Relevantes" bajo (ej. una fuente de ciencia/estadística general) es normal -- indica que la mayoría de lo que trae esa fuente no es sobre salud, no que algo esté mal. Una fuente activa con 0 ingeridos puede significar que aún no le toca su horario diario, o que su corrida más reciente falló (ver columna "fallo(s)" en la tabla de gestión de abajo).
+        </div>
+
+        <p class="guide-p" style="margin-top:20px;"><strong>Gestión de fuentes</strong> -- activar/desactivar, fijar horario diario, tope de artículos por corrida y antigüedad máxima (solo ADMIN edita estos campos).</p>
+
+        <div x-show="sourcesLoading" class="loader"><span class="spin dark"></span></div>
+
+        <div x-show="!sourcesLoading && !sources.length" class="empty">
+          <p>No hay fuentes registradas</p>
+        </div>
+
+        <div x-show="!sourcesLoading && sources.length" class="table-scroll">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Institución</th>
+                <th>Tipo</th>
+                <th>País</th>
+                <th>Horario diario</th>
+                <th>Artículos por corrida</th>
+                <th>Antigüedad máx. (días)</th>
+                <th>Estado</th>
+                <th x-show="me?.role === 'ADMIN' || me?.role === 'EDITOR'"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="s in sources" :key="s.id">
+                <tr>
+                  <td>
+                    <div x-text="s.name"></div>
+                    <div class="text-mono muted" x-text="s.institutionCode"></div>
+                  </td>
+                  <td><span class="badge badge-gray" x-text="s.type"></span></td>
+                  <td class="muted" x-text="s.country"></td>
+                  <td>
+                    <template x-if="me?.role === 'ADMIN'">
+                      <div class="flex items-center gap-2">
+                        <input
+                          type="time"
+                          class="input"
+                          style="width:110px;padding:4px 8px;"
+                          x-model="s._scheduledTimeInput"
+                        />
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          @click="saveSchedule(s)"
+                          :disabled="s._scheduleBusy || s._scheduledTimeInput === (s.scheduledTime || '')"
+                        >
+                          <span x-show="s._scheduleBusy" class="spin dark"></span>
+                          Guardar
+                        </button>
+                      </div>
+                    </template>
+                    <template x-if="me?.role !== 'ADMIN'">
+                      <span class="muted" x-text="s.scheduledTime ? `Diario ${s.scheduledTime}` : 'Solo manual'"></span>
+                    </template>
+                  </td>
+                  <td>
+                    <template x-if="me?.role === 'ADMIN'">
+                      <div class="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          class="input"
+                          style="width:80px;padding:4px 8px;"
+                          placeholder="default"
+                          x-model.number="s._maxItemsPerRunInput"
+                        />
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          @click="saveMaxItemsPerRun(s)"
+                          :disabled="s._maxItemsBusy || (s._maxItemsPerRunInput || null) === (s.maxItemsPerRun || null)"
+                        >
+                          <span x-show="s._maxItemsBusy" class="spin dark"></span>
+                          Guardar
+                        </button>
+                      </div>
+                    </template>
+                    <template x-if="me?.role !== 'ADMIN'">
+                      <span class="muted" x-text="s.maxItemsPerRun || 'Default del adapter'"></span>
+                    </template>
+                  </td>
+                  <td>
+                    <template x-if="s.type === 'OPEN_DATA_API'">
+                      <span class="muted">No aplica</span>
+                    </template>
+                    <template x-if="s.type !== 'OPEN_DATA_API' && me?.role === 'ADMIN'">
+                      <div class="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          class="input"
+                          style="width:80px;padding:4px 8px;"
+                          placeholder="default"
+                          x-model.number="s._maxAgeDaysInput"
+                        />
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          @click="saveMaxAgeDays(s)"
+                          :disabled="s._maxAgeBusy || (s._maxAgeDaysInput || null) === (s.maxAgeDays || null)"
+                        >
+                          <span x-show="s._maxAgeBusy" class="spin dark"></span>
+                          Guardar
+                        </button>
+                      </div>
+                    </template>
+                    <template x-if="s.type !== 'OPEN_DATA_API' && me?.role !== 'ADMIN'">
+                      <span class="muted" x-text="s.maxAgeDays ? `${s.maxAgeDays} días` : 'Default del adapter'"></span>
+                    </template>
+                  </td>
+                  <td>
+                    <span class="badge" :class="s.isActive ? 'badge-green' : 'badge-gray'" x-text="s.isActive ? 'Activa' : 'Inactiva'"></span>
+                    <span x-show="s.consecutiveFailures > 0" class="badge badge-amber" style="margin-left:4px;"
+                      x-text="`${s.consecutiveFailures} fallo(s)`"></span>
+                  </td>
+                  <td x-show="me?.role === 'ADMIN' || me?.role === 'EDITOR'">
+                    <div class="flex items-center gap-2">
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        @click="fetchMoreForSource(s)"
+                        :disabled="s._fetchMoreBusy || !s.isActive"
+                        title="Sube el tope +3 y busca solo en esta fuente"
+                      >
+                        <span x-show="s._fetchMoreBusy" class="spin dark"></span>
+                        Buscar otras 3
+                      </button>
+                      <button x-show="me?.role === 'ADMIN'" class="btn btn-secondary btn-sm" @click="toggleSource(s)">
+                        <span x-text="s.isActive ? 'Desactivar' : 'Activar'"></span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -249,7 +383,7 @@
             <tbody>
               <tr><td class="text-mono">page</td><td>entero, ≥1</td><td>Página a devolver. Por defecto 1.</td></tr>
               <tr><td class="text-mono">pageSize</td><td>entero, 1–100</td><td>Tamaño de página. Por defecto 20.</td></tr>
-              <tr><td class="text-mono">sourceId</td><td>UUID</td><td>Filtra por una fuente específica (ver <code>id</code> en la pestaña Fuentes).</td></tr>
+              <tr><td class="text-mono">sourceId</td><td>UUID</td><td>Filtra por una fuente específica (ver <code>id</code> en la tabla de fuentes, arriba en esta misma Guía).</td></tr>
               <tr><td class="text-mono">state</td><td><code>VALIDADO</code> | <code>PUBLICADO</code></td><td>Filtra solo aprobados-no-publicados o solo ya publicados. Si se omite, devuelve ambos.</td></tr>
             </tbody>
           </table>

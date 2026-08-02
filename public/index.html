@@ -73,13 +73,23 @@
       box-shadow: var(--shadow); padding: 18px 14px; display: flex; flex-direction: column;
     }
     .brand { padding: 8px 10px 18px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
-    .brand .header-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 21px; letter-spacing: -.03em; color: var(--ink); }
-    .brand .header-logo svg { width: 19px; height: 19px; color: var(--primary); }
+    .brand .header-logo { display: flex; align-items: center; background: #12238f; border-radius: 9px; padding: 8px 14px; }
+    .brand .header-logo img { height: 26px; width: auto; display: block; }
     .brand p { margin: 7px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
     .header-role { display: inline-block; margin-top: 6px; color: var(--subtle); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
 
+    /* Cada area del sidebar (Workflows+Estado, Blog, Inventario, Panel) va
+       en su propio .nav-group -- separador solido entre grupos para que
+       se distingan de un vistazo, en vez del listado corrido de antes. */
+    .nav-group { margin-bottom: 20px; }
+    .nav-group + .nav-group { padding-top: 16px; border-top: 1px solid var(--line); }
     .nav-title { margin: 4px 10px 9px; color: var(--subtle); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+    /* "Estado" no es un area nueva, son filtros de "Diario de la Salud" --
+       va anidado con su propio riel para que se lea como sub-nivel. */
+    .nav-subtitle { margin: 16px 10px 8px; color: var(--subtle); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
     .tabs { display: grid; gap: 6px; }
+    .tabs-nested { margin-left: 11px; padding-left: 11px; border-left: 2px solid var(--line); gap: 3px; }
+    .tab-sub { font-size: 12.5px; padding: 7px 10px; font-weight: 600; }
     .tab {
       width: 100%; text-align: left; color: #334155; border: 1px solid transparent; border-radius: 11px;
       padding: 10px 12px; font-size: 13.5px; font-weight: 650; background: transparent; cursor: pointer;
@@ -367,83 +377,79 @@
     <aside class="sidebar">
       <div class="brand">
         <div class="header-logo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-          </svg>
-          EcoFarma
+          <img src="/assets/ecofarma-logo-white.webp" alt="EcoFarma" />
         </div>
         <p>Dashboard unificado de workflows</p>
         <span class="header-role" x-text="me?.role ?? ''"></span>
       </div>
 
-      <div class="nav-title">Workflows</div>
-      <nav class="tabs">
-        <button class="tab" :class="{ active: tab === 'articulos' }" @click="tab = 'articulos'; loadSection('articulos'); loadAllArticles(); loadRuns()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-          Diario de la Salud
-        </button>
-      </nav>
+      <div class="nav-group">
+        <div class="nav-title">Workflows</div>
+        <nav class="tabs">
+          <button class="tab" :class="{ active: tab === 'articulos' }" @click="tab = 'articulos'; loadSection('articulos'); loadAllArticles(); loadRuns()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Diario de la Salud
+          </button>
+        </nav>
 
-      <div class="nav-title">Estado</div>
-      <nav class="tabs">
-        <button class="tab" :class="{ active: tab === 'articulos' && articleStateFilter === 'all' }" @click="setArticleFilter('all')">
-          Todos
-          <span x-show="articles.length" class="tab-badge tab-badge-count" x-text="articles.length"></span>
-        </button>
-        <button class="tab" :class="{ active: tab === 'articulos' && articleStateFilter === 'revision' }" @click="setArticleFilter('revision')">
-          En revisión
-          <span x-show="countByFilter('revision')" class="tab-badge tab-badge-count" x-text="countByFilter('revision')"></span>
-        </button>
-        <button class="tab" :class="{ active: tab === 'articulos' && articleStateFilter === 'triage' }" @click="setArticleFilter('triage')">
-          Triage
-          <span x-show="countByFilter('triage')" class="tab-badge" x-text="countByFilter('triage')"></span>
-        </button>
-        <button class="tab" :class="{ active: tab === 'articulos' && articleStateFilter === 'validado' }" @click="setArticleFilter('validado')">
-          Validados
-          <span x-show="countByFilter('validado')" class="tab-badge tab-badge-count" x-text="countByFilter('validado')"></span>
-        </button>
-        <button class="tab" :class="{ active: tab === 'articulos' && articleStateFilter === 'publicado' }" @click="setArticleFilter('publicado')">
-          Publicados
-          <span x-show="countByFilter('publicado')" class="tab-badge tab-badge-count" x-text="countByFilter('publicado')"></span>
-        </button>
-        <button class="tab" :class="{ active: tab === 'articulos' && articleStateFilter === 'rechazado' }" @click="setArticleFilter('rechazado')">
-          Rechazados
-          <span x-show="countByFilter('rechazado')" class="tab-badge tab-badge-count" x-text="countByFilter('rechazado')"></span>
-        </button>
-      </nav>
+        <div class="nav-subtitle">Filtrar por estado</div>
+        <nav class="tabs tabs-nested">
+          <button class="tab tab-sub" :class="{ active: tab === 'articulos' && articleStateFilter === 'all' }" @click="setArticleFilter('all')">
+            Todos
+            <span x-show="articles.length" class="tab-badge tab-badge-count" x-text="articles.length"></span>
+          </button>
+          <button class="tab tab-sub" :class="{ active: tab === 'articulos' && articleStateFilter === 'revision' }" @click="setArticleFilter('revision')">
+            En revisión
+            <span x-show="countByFilter('revision')" class="tab-badge tab-badge-count" x-text="countByFilter('revision')"></span>
+          </button>
+          <button class="tab tab-sub" :class="{ active: tab === 'articulos' && articleStateFilter === 'triage' }" @click="setArticleFilter('triage')">
+            Triage
+            <span x-show="countByFilter('triage')" class="tab-badge" x-text="countByFilter('triage')"></span>
+          </button>
+          <button class="tab tab-sub" :class="{ active: tab === 'articulos' && articleStateFilter === 'validado' }" @click="setArticleFilter('validado')">
+            Validados
+            <span x-show="countByFilter('validado')" class="tab-badge tab-badge-count" x-text="countByFilter('validado')"></span>
+          </button>
+          <button class="tab tab-sub" :class="{ active: tab === 'articulos' && articleStateFilter === 'publicado' }" @click="setArticleFilter('publicado')">
+            Publicados
+            <span x-show="countByFilter('publicado')" class="tab-badge tab-badge-count" x-text="countByFilter('publicado')"></span>
+          </button>
+          <button class="tab tab-sub" :class="{ active: tab === 'articulos' && articleStateFilter === 'rechazado' }" @click="setArticleFilter('rechazado')">
+            Rechazados
+            <span x-show="countByFilter('rechazado')" class="tab-badge tab-badge-count" x-text="countByFilter('rechazado')"></span>
+          </button>
+        </nav>
+      </div>
 
-      <div class="nav-title">Blog</div>
-      <nav class="tabs">
-        <button class="tab" :class="{ active: tab === 'blog' }" @click="tab = 'blog'; loadSection('blog'); loadBlogHubs(); loadBlogPosts()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          Blog (Excel)
-        </button>
-      </nav>
+      <div class="nav-group">
+        <div class="nav-title">Blog</div>
+        <nav class="tabs">
+          <button class="tab" :class="{ active: tab === 'blog' }" @click="tab = 'blog'; loadSection('blog'); loadBlogHubs(); loadBlogPosts()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            Blog (Excel)
+          </button>
+        </nav>
+      </div>
 
-      <div class="nav-title">Inventario</div>
-      <nav class="tabs">
-        <button class="tab" :class="{ active: tab === 'inventario' }" @click="tab = 'inventario'; loadSection('inventario'); loadInventoryBranches(); loadInventoryProducts(); loadDistrimonacoSyncRuns(); loadSynonyms()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.91 8.84L8.56 21.19a2 2 0 0 1-2.83 0L3.16 18.6a2 2 0 0 1 0-2.83L15.5 3.42"/><path d="M3.5 8.5l3-3"/><path d="M13.5 22.5a5 5 0 0 1-7-7"/></svg>
-          Inventario (chatbot)
-        </button>
-        <button class="tab" :class="{ active: tab === 'pedidos' }" @click="tab = 'pedidos'; loadSection('pedidos'); loadOrders()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-          Pedidos
-          <span x-show="ordersPendingCount" class="tab-badge" x-text="ordersPendingCount"></span>
-        </button>
-      </nav>
+      <div class="nav-group">
+        <div class="nav-title">Inventario</div>
+        <nav class="tabs">
+          <button class="tab" :class="{ active: tab === 'inventario' }" @click="tab = 'inventario'; loadSection('inventario'); loadInventoryBranches(); loadInventoryProducts(); loadDistrimonacoSyncRuns(); loadSynonyms(); loadWoocommerceHiddenProducts()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.91 8.84L8.56 21.19a2 2 0 0 1-2.83 0L3.16 18.6a2 2 0 0 1 0-2.83L15.5 3.42"/><path d="M3.5 8.5l3-3"/><path d="M13.5 22.5a5 5 0 0 1-7-7"/></svg>
+            Inventario
+          </button>
+        </nav>
+      </div>
 
-      <div class="nav-title">Panel</div>
-      <nav class="tabs">
-        <button class="tab" :class="{ active: tab === 'fuentes' }" @click="tab = 'fuentes'; loadSection('fuentes'); loadSources()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-          Fuentes
-        </button>
-        <button class="tab" :class="{ active: tab === 'guia' }" @click="tab = 'guia'; loadSection('guia'); loadSourceStats(); loadPrompts()" title="Guía de uso">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Guía
-        </button>
-      </nav>
+      <div class="nav-group">
+        <div class="nav-title">Panel</div>
+        <nav class="tabs">
+          <button class="tab" :class="{ active: tab === 'guia' }" @click="tab = 'guia'; loadSection('guia'); loadSourceStats(); loadSources(); loadPrompts()" title="Guía de uso">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Guía
+          </button>
+        </nav>
+      </div>
 
       <div class="sidebar-foot">
         <div class="header-status">
@@ -482,7 +488,6 @@
       <div x-show="tab === 'inventario'" id="section-inventario"></div>
       <div x-show="tab === 'chatbot-test'" id="section-chatbot-test"></div>
       <div x-show="tab === 'pedidos'" id="section-pedidos"></div>
-      <div x-show="tab === 'fuentes'" id="section-fuentes"></div>
       <div x-show="tab === 'guia'" id="section-guia"></div>
     </main>
   </div>
@@ -577,6 +582,25 @@ function app() {
     newSynonymTerm: '',
     newSynonymRelated: '',
     newSynonymBusy: false,
+
+    // Disponibilidad en WordPress -- catalogo REAL de WooCommerce
+    // (~42,000 productos), separado del Product de este backend. No hay
+    // copia local, la busqueda siempre pega en vivo a /inventory/woocommerce/products.
+    wooSearchQuery: '',
+    wooSearchResults: [],
+    wooSearchBusy: false,
+    wooSearchDone: false,
+    wooHiddenProducts: [],
+    wooHiddenLoading: false,
+
+    // Tarjetas colapsables de Inventario -- Disponibilidad en WordPress
+    // abierta por defecto (pedido explicito del usuario 2026-08-02), el
+    // resto colapsado hasta que el usuario las abra.
+    invWooOpen: true,
+    invSyncOpen: false,
+    invSynonymsOpen: false,
+    invBranchesOpen: false,
+    invProductsOpen: false,
 
     // Probar chatbot -- llama a POST /chatbot/message tal cual lo haria
     // el widget publico (sin header de Authorization), para que la
@@ -733,8 +757,7 @@ function app() {
       else if (this.tab === 'blog') { this.loadBlogPosts(); }
       else if (this.tab === 'inventario') { this.loadInventoryProducts(); }
       else if (this.tab === 'pedidos') { this.loadOrders(); }
-      else if (this.tab === 'fuentes') { this.loadSources(); }
-      else if (this.tab === 'guia') { this.loadSourceStats(); }
+      else if (this.tab === 'guia') { this.loadSourceStats(); this.loadSources(); }
     },
 
     async loadHealth() {
@@ -1016,6 +1039,7 @@ function app() {
       product._editedDescription = product.description || '';
       product._editedRequiresPrescription = product.requiresPrescription;
       product._editedIsActive = product.isActive;
+      product._editedHiddenFromCatalog = product.hiddenFromCatalog;
       product._stockByBranch = this.inventoryBranches.map((branch) => {
         const existing = product.stock.find((s) => s.branchId === branch.id);
         return {
@@ -1039,6 +1063,7 @@ function app() {
           description: product._editedDescription || null,
           requiresPrescription: product._editedRequiresPrescription,
           isActive: product._editedIsActive,
+          hiddenFromCatalog: product._editedHiddenFromCatalog,
         });
         if (r.ok) {
           Object.assign(product, await r.json());
@@ -1299,6 +1324,72 @@ function app() {
           this.showToast('No se pudo eliminar el sinónimo', 'error');
         }
       } finally { syn._busy = false; }
+    },
+
+    async searchWoocommerceProducts() {
+      const q = this.wooSearchQuery.trim();
+      if (q.length < 2) { this.showToast('Escribe al menos 2 caracteres', 'error'); return; }
+      this.wooSearchBusy = true;
+      this.wooSearchDone = false;
+      try {
+        const r = await this.get(`/inventory/woocommerce/products?q=${encodeURIComponent(q)}`);
+        if (r.ok) {
+          this.wooSearchResults = (await r.json()).map((p) => ({ ...p, _busy: false, _stockBusy: false }));
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message || 'No se pudo buscar en WooCommerce', 'error');
+          this.wooSearchResults = [];
+        }
+      } catch {
+        this.showToast('No se pudo conectar con WooCommerce', 'error');
+        this.wooSearchResults = [];
+      } finally {
+        this.wooSearchBusy = false;
+        this.wooSearchDone = true;
+      }
+    },
+
+    async toggleWoocommerceAvailability(product) {
+      product._busy = true;
+      try {
+        const hidden = product.catalogVisibility !== 'hidden';
+        const r = await this.patch(`/inventory/woocommerce/products/${product.id}/availability`, { hidden });
+        if (r.ok) {
+          Object.assign(product, await r.json());
+          // Mantiene la lista de "no disponibles" en sync sin recargar,
+          // sin importar si el toggle vino del buscador o de esa misma lista.
+          this.wooHiddenProducts = this.wooHiddenProducts.filter((p) => p.id !== product.id);
+          if (hidden) this.wooHiddenProducts.unshift({ id: product.id, sku: product.sku, name: product.name, hiddenAt: new Date().toISOString() });
+          this.showToast(hidden ? 'Producto marcado como no disponible' : 'Producto marcado como disponible');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message || 'No se pudo actualizar el producto', 'error');
+        }
+      } finally { product._busy = false; }
+    },
+
+    async loadWoocommerceHiddenProducts() {
+      this.wooHiddenLoading = true;
+      try {
+        const r = await this.get('/inventory/woocommerce/hidden-products');
+        if (r.ok) this.wooHiddenProducts = (await r.json()).map((p) => ({ ...p, _busy: false, catalogVisibility: 'hidden' }));
+      } catch {
+      } finally { this.wooHiddenLoading = false; }
+    },
+
+    async toggleWoocommerceStockStatus(product) {
+      product._stockBusy = true;
+      try {
+        const outOfStock = product.stockStatus === 'instock';
+        const r = await this.patch(`/inventory/woocommerce/products/${product.id}/stock-status`, { outOfStock });
+        if (r.ok) {
+          Object.assign(product, await r.json());
+          this.showToast(outOfStock ? 'Producto marcado como agotado' : 'Producto marcado con stock');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message || 'No se pudo actualizar el stock', 'error');
+        }
+      } finally { product._stockBusy = false; }
     },
 
     async createBranch() {

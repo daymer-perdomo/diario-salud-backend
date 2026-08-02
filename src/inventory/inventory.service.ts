@@ -169,6 +169,7 @@ export class InventoryService {
     const products = await this.prisma.product.findMany({
       where: {
         isActive: true,
+        hiddenFromCatalog: false,
         OR: allTerms.flatMap((t) => [
           { name: { contains: t, mode: 'insensitive' as const } },
           { sku: { contains: t, mode: 'insensitive' as const } },
@@ -194,6 +195,7 @@ export class InventoryService {
       where: {
         id: { not: productId },
         isActive: true,
+        hiddenFromCatalog: false,
         activeIngredient: product.activeIngredient,
         stock: { some: { quantity: { gt: 0 } } },
       },

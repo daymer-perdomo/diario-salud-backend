@@ -588,6 +588,13 @@ model Product {
   requiresPrescription Boolean @default(false)
   isActive             Boolean @default(true)
 
+  // Flag manual e independiente del stock/isActive -- lo pone el admin
+  // desde el dashboard (inventario.html) para sacar un producto puntual
+  // del chatbot (ej. un agotado que no quieren seguir mostrando) sin
+  // depender de que Distrimonaco lo marque inactivo. Igual que
+  // activeIngredient/category/etc., DistrimonacoSyncService NUNCA lo toca.
+  hiddenFromCatalog Boolean @default(false)
+
   // --- Campos que solo llena DistrimonacoSyncService (ver ese archivo) --
   // activeIngredient/category/description/requiresPrescription arriba son
   // SIEMPRE manuales (la API de Distrimonaco no los reporta) y la sync
@@ -620,6 +627,25 @@ model Product {
   @@index([activeIngredient])
   @@index([category])
   @@map("products")
+}
+
+/// Registro LOCAL de que productos de WooCommerce se marcaron "no
+/// disponible" (catalog_visibility=hidden) desde este dashboard -- ver
+/// WoocommerceCatalogService, conversacion 2026-08-02. Existe porque la
+/// API REST de WooCommerce NO permite filtrar productos por
+/// catalog_visibility (verificado: el parametro se ignora en silencio y
+/// devuelve el catalogo completo) asi que no hay forma de pedirle a
+/// WooCommerce "dame los ocultos" -- esta tabla es la unica manera de
+/// listarlos despues. `id` es el id del producto EN WooCommerce (no un
+/// uuid local) -- se borra la fila al volver a marcar "disponible", asi
+/// que solo contiene lo que sigue oculto ahora mismo.
+model WoocommerceHiddenProduct {
+  id       Int      @id
+  sku      String
+  name     String
+  hiddenAt DateTime @default(now())
+
+  @@map("woocommerce_hidden_products")
 }
 
 /// Precio en Decimal (nunca Float) por la misma razon de siempre con

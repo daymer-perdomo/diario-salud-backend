@@ -140,9 +140,11 @@ export class DistrimonacoSyncService implements OnModuleInit {
 
   /// name/labName/invimaRegistration/etc SIEMPRE se pisan con lo que
   /// reporta Distrimonaco -- es el catalogo real del proveedor. En
-  /// cambio activeIngredient/category/description/requiresPrescription
-  /// (ver UpdateProductDto) nunca se tocan aca: la API no los reporta,
-  /// son siempre manuales desde el panel.
+  /// cambio activeIngredient/category/description/requiresPrescription/
+  /// hiddenFromCatalog (ver UpdateProductDto) nunca se tocan aca: la API
+  /// no los reporta (o, en el caso de hiddenFromCatalog, es una decision
+  /// manual del admin que no debe revertirse en cada sync), siempre son
+  /// manuales desde el panel.
   private async upsertProducto(p: DistrimonacoProducto, branchId: string) {
     const isActive = p.EstadoProducto === 'Activo';
     const data = {

@@ -38,11 +38,11 @@
        navegacion movil debajo (ver esa funcion mas abajo). */
     .fab {
       position: fixed; bottom: 20px; right: 20px; width: 64px; height: 64px; border-radius: 50%;
-      background: ${BRAND_BLUE}; border: none; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.2);
+      background: #fff; border: none; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.2);
       display: flex; align-items: center; justify-content: center; z-index: 999999; padding: 0; overflow: hidden;
     }
     .fab:hover { box-shadow: 0 8px 22px rgba(0,0,0,.3); }
-    .fab img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .fab img { width: 100%; height: 100%; object-fit: contain; display: block; }
     .panel {
       position: fixed; bottom: 96px; right: 20px; width: 440px; max-width: calc(100vw - 32px);
       height: 560px; max-height: calc(100vh - 120px); background: #fff; border-radius: 14px;
@@ -51,7 +51,7 @@
     }
     .panel.hidden { display: none; }
     .header { background: ${BRAND_BLUE}; color: #fff; padding: 14px 16px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
-    .header img { height: 36px; width: 36px; object-fit: cover; border-radius: 50%; flex-shrink: 0; }
+    .header img { height: 36px; width: 36px; object-fit: contain; border-radius: 50%; background: #fff; flex-shrink: 0; }
     .header small { display: block; font-weight: 400; opacity: .85; font-size: 11px; margin-top: 2px; }
     .messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #f8fafc; }
     .msg { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
