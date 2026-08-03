@@ -26,4 +26,10 @@ EXPOSE 3000
 # "rootDir" en tsconfig.json, y prisma/seed.ts entra en la compilacion,
 # asi que TypeScript calcula la raiz comun de src/ y prisma/ y refleja
 # ambas carpetas bajo dist/.
-CMD ["node", "dist/src/main.js"]
+#
+# migrate deploy + seed corren en cada arranque del contenedor (no solo en
+# el primer deploy): en el plan free de Render no hay preDeployCommand ni
+# Shell, asi que este es el unico lugar disponible para aplicarlos. Ambos
+# son idempotentes -- migrate deploy omite lo ya aplicado, el seed usa
+# upsert -- por lo que repetirlos en cada restart es seguro.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/prisma/seed.js && node dist/src/main.js"]

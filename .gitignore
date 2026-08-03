@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .env.local
+render-backend.env
 *.log
 coverage/
 .DS_Store
