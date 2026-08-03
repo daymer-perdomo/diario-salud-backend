@@ -57,6 +57,21 @@ export class WordpressPublishService implements OnModuleInit {
     return 'Basic ' + Buffer.from(`${username}:${appPassword}`).toString('base64');
   }
 
+  /// Headers comunes a toda llamada a wp-json/wp/v2/* -- incluye
+  /// X-EcoFarma-Backend-Secret cuando esta configurado, para que una regla
+  /// de firewall de Cloudflare pueda dejar pasar este trafico sin
+  /// depender de la IP de salida de Render (ver comentario de
+  /// WORDPRESS_BACKEND_SECRET en env.validation.ts).
+  private wordpressHeaders(extra: Record<string, string>): Record<string, string> {
+    const secret = this.config.get<string>('WORDPRESS_BACKEND_SECRET');
+    return {
+      Authorization: this.authHeader(),
+      'User-Agent': 'EcoFarma-Backend/1.0 (+https://ecofarma.co)',
+      ...(secret ? { 'X-EcoFarma-Backend-Secret': secret } : {}),
+      ...extra,
+    };
+  }
+
   /// Sube la imagen del articulo (real o DEFAULT_ARTICLE_IMAGE_URL) a la
   /// biblioteca de medios de WordPress. Devuelve el ID de medio para usarlo
   /// como featured_media, o null si falla -- un fallo aqui NUNCA debe
@@ -75,12 +90,10 @@ export class WordpressPublishService implements OnModuleInit {
 
       const uploadRes = await fetch(`${baseUrl}/wp-json/wp/v2/media`, {
         method: 'POST',
-        headers: {
-          Authorization: this.authHeader(),
+        headers: this.wordpressHeaders({
           'Content-Type': contentType,
           'Content-Disposition': `attachment; filename="articulo-${article.id}.${extension}"`,
-          'User-Agent': 'EcoFarma-Backend/1.0 (+https://ecofarma.co)',
-        },
+        }),
         body: bytes,
       });
       if (!uploadRes.ok) throw new Error(`WordPress rechazo la imagen (${uploadRes.status}): ${await uploadRes.text()}`);
@@ -130,11 +143,7 @@ export class WordpressPublishService implements OnModuleInit {
 
     const res = await fetch(`${baseUrl}/wp-json/wp/v2/posts`, {
       method: 'POST',
-      headers: {
-        Authorization: this.authHeader(),
-        'Content-Type': 'application/json',
-        'User-Agent': 'EcoFarma-Backend/1.0 (+https://ecofarma.co)',
-      },
+      headers: this.wordpressHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         title: article.rewrittenTitle ?? article.originalTitle,
         content: this.buildContent(article),

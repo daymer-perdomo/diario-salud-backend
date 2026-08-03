@@ -108,6 +108,12 @@ services:
         sync: false
       - key: WORDPRESS_APP_PASSWORD
         sync: false
+      # Debe coincidir exacto con el valor configurado en la regla de
+      # firewall de Cloudflare que permite este trafico (ver comentario en
+      # env.validation.ts) -- sin esto, Cloudflare bloquea con 403 el
+      # trafico hacia wp-json/wp/v2/* desde la IP de salida de Render.
+      - key: WORDPRESS_BACKEND_SECRET
+        sync: false
 
   # Copia identica del servicio de produccion, apuntando a su propia DB/
   # Redis. Desplegar y validar aqui primero siempre.

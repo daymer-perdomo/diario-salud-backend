@@ -96,6 +96,15 @@ export const envSchema = z.object({
   /// (wp-json/wp/v2/categories) -- fijo por sitio, no cambia entre articulos.
   WORDPRESS_CATEGORY_ID: z.coerce.number().int().positive().optional(),
   WORDPRESS_SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
+  /// Cloudflare (delante de ecofarma.co) bloquea con un 403 "Attention
+  /// Required" el trafico de wp-json/wp/v2/* que llega desde la IP de
+  /// salida de Render (verificado en vivo 2026-08-03) -- este header
+  /// identifica al backend ante una regla de firewall de Cloudflare que
+  /// permite el paso solo si coincide, sin depender de esa IP (que puede
+  /// cambiar en un redeploy). Sin definir, el header simplemente no se
+  /// envia -- el bloqueo de Cloudflare sigue activo hasta configurar la
+  /// regla del lado de Cloudflare con el mismo valor.
+  WORDPRESS_BACKEND_SECRET: z.string().optional(),
   WOOCOMMERCE_IMAGE_SYNC_BATCH_SIZE: z.coerce.number().int().positive().default(100),
 
   PORT: z.coerce.number().int().positive().default(3000),
