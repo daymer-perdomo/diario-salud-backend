@@ -10,7 +10,7 @@
 /// articulo como candidato a reintento (ver su where imageUrl: null). El
 /// fallback se aplica solo al servir el articulo a un humano o a la API
 /// publica.
-export const DEFAULT_ARTICLE_IMAGE_URL = 'https://diario-salud-backend.onrender.com/assets/post.webp';
+export const DEFAULT_ARTICLE_IMAGE_URL = 'https://diario.ecofarma.co/assets/post.webp';
 
 export function withDefaultImage<T extends { imageUrl: string | null }>(article: T): T {
   return article.imageUrl ? article : { ...article, imageUrl: DEFAULT_ARTICLE_IMAGE_URL };
