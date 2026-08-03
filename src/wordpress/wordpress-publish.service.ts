@@ -158,7 +158,7 @@ export class WordpressPublishService implements OnModuleInit {
   /// solo toma articulos PUBLICADO sin wordpressPostId, asi que dos
   /// corridas solapadas en el peor caso reintentan lo mismo, nunca duplican
   /// una entrada ya creada exitosamente.
-  async syncNow(): Promise<{ checked: number; created: number }> {
+  async syncNow(): Promise<{ checked: number; created: number; errors?: Array<{ articleId: string; message: string }> }> {
     if (!this.isConfigured()) {
       this.logger.warn('syncNow() llamado sin WORDPRESS_* configurado -- se omite.');
       return { checked: 0, created: 0 };
@@ -176,17 +176,20 @@ export class WordpressPublishService implements OnModuleInit {
       });
 
       let created = 0;
+      const errors: Array<{ articleId: string; message: string }> = [];
       for (const article of candidates) {
         try {
           await this.publishOne(article);
           created++;
         } catch (err) {
-          this.logger.warn(`Articulo ${article.id}: no se pudo sincronizar a WordPress -- ${(err as Error).message}`);
+          const message = (err as Error).message;
+          this.logger.warn(`Articulo ${article.id}: no se pudo sincronizar a WordPress -- ${message}`);
+          errors.push({ articleId: article.id, message });
         }
       }
 
       this.logger.log(`Espejo a WordPress: ${candidates.length} candidatos, ${created} creados.`);
-      return { checked: candidates.length, created };
+      return { checked: candidates.length, created, errors };
     } finally {
       this.syncing = false;
     }
