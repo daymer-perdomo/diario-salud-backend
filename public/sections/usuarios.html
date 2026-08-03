@@ -1,0 +1,72 @@
+      <p class="section-title">Usuarios</p>
+      <p class="section-sub">Solo un ADMIN puede crear cuentas nuevas o ver este listado.</p>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="flex items-center gap-2">
+            <span class="card-title">Crear usuario</span>
+          </div>
+        </div>
+        <div class="inline-form">
+          <div class="field">
+            <label class="label">Email</label>
+            <input type="email" class="input" x-model="newUserEmail" placeholder="nombre@ecofarma.co" />
+          </div>
+          <div class="field">
+            <label class="label">Nombre</label>
+            <input type="text" class="input" x-model="newUserName" placeholder="Nombre completo" />
+          </div>
+          <div class="field">
+            <label class="label">Password</label>
+            <input type="password" class="input" x-model="newUserPassword" placeholder="Mín. 8 caracteres" />
+          </div>
+          <div class="field">
+            <label class="label">Rol</label>
+            <select class="input" x-model="newUserRole">
+              <option value="ADMIN">ADMIN</option>
+              <option value="EDITOR">EDITOR</option>
+              <option value="VALIDATOR">VALIDATOR</option>
+              <option value="VIEWER">VIEWER</option>
+            </select>
+          </div>
+          <button
+            class="btn btn-primary btn-sm"
+            @click="createUser()"
+            :disabled="newUserBusy || !newUserEmail.trim() || !newUserName.trim() || newUserPassword.length < 8"
+          >
+            <span x-show="newUserBusy" class="spin"></span>
+            Crear usuario
+          </button>
+        </div>
+      </div>
+
+      <div x-show="usersLoading" class="loader"><span class="spin dark"></span></div>
+
+      <div x-show="!usersLoading && !users.length" class="empty">
+        <p>No hay usuarios registrados</p>
+      </div>
+
+      <div x-show="!usersLoading && users.length" class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Nombre</th>
+              <th>Rol</th>
+              <th>Estado</th>
+              <th>Creado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="u in users" :key="u.id">
+              <tr>
+                <td class="text-mono" x-text="u.email"></td>
+                <td x-text="u.name"></td>
+                <td><span class="badge badge-gray" x-text="u.role"></span></td>
+                <td><span class="badge" :class="u.isActive ? 'badge-green' : 'badge-gray'" x-text="u.isActive ? 'Activo' : 'Inactivo'"></span></td>
+                <td class="muted" x-text="timeAgo(u.createdAt)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>

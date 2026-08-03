@@ -451,6 +451,16 @@
         </nav>
       </div>
 
+      <div class="nav-group" x-show="me?.role === 'ADMIN'">
+        <div class="nav-title">Usuarios</div>
+        <nav class="tabs">
+          <button class="tab" :class="{ active: tab === 'usuarios' }" @click="tab = 'usuarios'; loadSection('usuarios'); loadUsers()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Usuarios
+          </button>
+        </nav>
+      </div>
+
       <div class="sidebar-foot">
         <div class="header-status">
           <span class="dot" :class="{ err: !health?.db }"></span>
@@ -489,6 +499,7 @@
       <div x-show="tab === 'chatbot-test'" id="section-chatbot-test"></div>
       <div x-show="tab === 'pedidos'" id="section-pedidos"></div>
       <div x-show="tab === 'guia'" id="section-guia"></div>
+      <div x-show="tab === 'usuarios'" id="section-usuarios"></div>
     </main>
   </div>
 
@@ -637,6 +648,16 @@ function app() {
     ordersMeta: { total: 0, totalPages: 1 },
     ordersPendingCount: 0,
 
+    // Usuarios -- solo ADMIN ve esta pestana (RolesGuard tambien la exige
+    // en el backend, esto es solo para no mostrar una opcion que fallaria).
+    users: [],
+    usersLoading: false,
+    newUserEmail: '',
+    newUserName: '',
+    newUserPassword: '',
+    newUserRole: 'VIEWER',
+    newUserBusy: false,
+
     // UI
     toast: { show: false, msg: '', type: 'success' },
 
@@ -704,6 +725,7 @@ function app() {
       this.inventoryProducts = []; this.inventoryBranches = []; this.distrimonacoSyncRuns = []; this.synonyms = [];
       this.chatbotTestMessages = []; this.chatbotTestConversationId = null;
       this.orders = []; this.ordersPendingCount = 0;
+      this.users = [];
       clearInterval(this._pipelineInterval);
       this._pipelineInterval = null;
       this.pipelineStatus = { isActive: false, totalPending: 0, stages: [] };
@@ -1406,6 +1428,36 @@ function app() {
           this.showToast(b?.message?.[0] || b?.message || 'No se pudo crear la sucursal', 'error');
         }
       } finally { this.newBranchBusy = false; }
+    },
+
+    // ── Usuarios (solo ADMIN) ────────────────────────────────────────────
+    async loadUsers() {
+      this.usersLoading = true;
+      try {
+        const r = await this.get('/users');
+        if (r.ok) this.users = await r.json();
+      } finally { this.usersLoading = false; }
+    },
+
+    async createUser() {
+      if (!this.newUserEmail.trim() || !this.newUserName.trim() || this.newUserPassword.length < 8) return;
+      this.newUserBusy = true;
+      try {
+        const r = await this.post('/users', {
+          email: this.newUserEmail.trim(),
+          name: this.newUserName.trim(),
+          password: this.newUserPassword,
+          role: this.newUserRole,
+        });
+        if (r.ok) {
+          this.users.push(await r.json());
+          this.newUserEmail = ''; this.newUserName = ''; this.newUserPassword = ''; this.newUserRole = 'VIEWER';
+          this.showToast('Usuario creado');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo crear el usuario', 'error');
+        }
+      } finally { this.newUserBusy = false; }
     },
 
     // ── Pedidos (solicitudes del carrito del chatbot) ───────────────────
