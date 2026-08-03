@@ -324,10 +324,16 @@ model Article {
   validationNotes    String?
   validatedAt        DateTime?
 
-  // --- Publicacion (solo tras validacion, directo a nuestra API publica -- sin WordPress) ---
+  // --- Publicacion (a nuestra API publica; wordpressPostId rastrea el
+  // espejo opcional hacia el WordPress de EcoFarma -- ver WordpressPublishService) ---
   publishedAt       DateTime?
   publishedByUserId String?
   publishedBy       User?     @relation("ArticlePublishedBy", fields: [publishedByUserId], references: [id])
+  /// ID de la entrada creada via wp-json/wp/v2/posts. Null = aun no
+  /// sincronizado (candidato para el proximo intento) o WORDPRESS_* no
+  /// configurado. Nunca se sobreescribe una vez creado -- WordpressPublishService
+  /// no reintenta sobre articulos que ya tienen wordpressPostId.
+  wordpressPostId Int?
 
   // --- Deduplicacion ---
   isDuplicateOf String?

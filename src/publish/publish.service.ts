@@ -1,18 +1,28 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ArticleState } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ArticleStateMachineService } from '../articles/article-state-machine.service';
 import { withDefaultImage } from '../common/default-article-image.util';
+import { WordpressPublishService } from '../wordpress/wordpress-publish.service';
 
-/// Decision 2026-07-16: la publicacion ya no empuja hacia un WordPress
-/// externo (ver [[ecofarma-diario-salud-stack]] en memoria) -- el destino
-/// final de un articulo VALIDADO es nuestra propia API publica de solo
-/// lectura (GET /articles, ArticlesController). Este servicio se reduce a
-/// un unico paso: la transicion de estado, que ArticleStateMachineService
-/// ya protege con el CHECK "publish_requires_validation" de Postgres.
+/// El destino final de un articulo VALIDADO es nuestra propia API publica
+/// de solo lectura (GET /articles, ArticlesController) -- eso nunca cambia,
+/// PublishService.publish() se reduce a la transicion de estado, que
+/// ArticleStateMachineService ya protege con el CHECK
+/// "publish_requires_validation" de Postgres. El espejo hacia el WordPress
+/// de EcoFarma (WordpressPublishService) es un paso adicional, best-effort:
+/// se dispara aqui para no esperar hasta el proximo intervalo programado,
+/// pero un fallo ahi JAMAS debe impedir que /publish/:id/publish responda
+/// 200 -- el intervalo (o POST /wordpress/sync-now) reintenta despues.
 @Injectable()
 export class PublishService {
-  constructor(private readonly prisma: PrismaService, private readonly stateMachine: ArticleStateMachineService) {}
+  private readonly logger = new Logger(PublishService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly stateMachine: ArticleStateMachineService,
+    private readonly wordpressPublish: WordpressPublishService,
+  ) {}
 
   /// Articulos validados por un humano, esperando el paso final de
   /// publicacion.
@@ -26,6 +36,10 @@ export class PublishService {
   }
 
   async publish(articleId: string, actorId: string) {
-    return this.stateMachine.publish(articleId, actorId);
+    const article = await this.stateMachine.publish(articleId, actorId);
+    this.wordpressPublish
+      .syncNow()
+      .catch((err) => this.logger.warn(`Espejo a WordPress tras publicar ${articleId} fallo: ${(err as Error).message}`));
+    return article;
   }
 }

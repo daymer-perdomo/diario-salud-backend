@@ -16,9 +16,16 @@
 # separados -- probar cambios de pipeline/schema contra una base de datos
 # de prueba antes de tocar la de produccion.
 #
-# Decision 2026-07-16: este backend ya NO publica hacia un WordPress
-# externo -- expone su propia API publica de solo lectura (GET /articles)
-# como destino final. Por eso no hay variables WORDPRESS_* aqui.
+# El destino final de un articulo PUBLICADO sigue siendo nuestra propia API
+# publica de solo lectura (GET /articles) -- eso no cambia. Ademas, desde
+# 2026-08-03 el servicio de produccion tambien espejea cada articulo
+# PUBLICADO hacia el WordPress real de EcoFarma (WordpressPublishService,
+# variables WORDPRESS_*), reemplazando una automatizacion externa que
+# cumplia este mismo rol y que nunca se logro localizar tras dejar de
+# sincronizar articulos nuevos. Deliberadamente NO se configuran en
+# staging: sin WORDPRESS_* el espejo se omite solo (no rompe el arranque),
+# asi un deploy de prueba nunca puede publicar contenido de prueba en el
+# WordPress real.
 
 databases:
   - name: diario-salud-db
@@ -87,6 +94,19 @@ services:
       - key: SEED_ADMIN_EMAIL
         sync: false
       - key: SEED_ADMIN_PASSWORD
+        sync: false
+
+      # Espejo hacia el WordPress real de EcoFarma (ver WordpressPublishService).
+      # WORDPRESS_USERNAME/APP_PASSWORD son una Application Password de
+      # WordPress (Usuarios > Perfil > Contrasenas de aplicacion), nunca la
+      # contrasena real de la cuenta -- se puede anular ahi sin tocar nada mas.
+      - key: WORDPRESS_BASE_URL
+        value: "https://ecofarma.co"
+      - key: WORDPRESS_CATEGORY_ID
+        value: "2861"
+      - key: WORDPRESS_USERNAME
+        sync: false
+      - key: WORDPRESS_APP_PASSWORD
         sync: false
 
   # Copia identica del servicio de produccion, apuntando a su propia DB/

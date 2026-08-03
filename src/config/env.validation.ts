@@ -82,6 +82,20 @@ export const envSchema = z.object({
   WOOCOMMERCE_CONSUMER_KEY: z.string().optional(),
   WOOCOMMERCE_CONSUMER_SECRET: z.string().optional(),
   WOOCOMMERCE_IMAGE_SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(10),
+
+  /// Espejo de articulos PUBLICADO hacia el WordPress de EcoFarma (ver
+  /// WordpressPublishService) -- autenticado con una Application Password
+  /// de WordPress (Ajustes de usuario > Contrasenas de aplicacion), no la
+  /// contrasena real de la cuenta. Sin credenciales definidas, el espejo
+  /// se omite (no rompe el arranque); la API publica GET /articles sigue
+  /// siendo la fuente de verdad.
+  WORDPRESS_BASE_URL: z.string().url().optional(),
+  WORDPRESS_USERNAME: z.string().optional(),
+  WORDPRESS_APP_PASSWORD: z.string().optional(),
+  /// ID numerico de la categoria "Diario de la Salud" en WordPress
+  /// (wp-json/wp/v2/categories) -- fijo por sitio, no cambia entre articulos.
+  WORDPRESS_CATEGORY_ID: z.coerce.number().int().positive().optional(),
+  WORDPRESS_SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
   WOOCOMMERCE_IMAGE_SYNC_BATCH_SIZE: z.coerce.number().int().positive().default(100),
 
   PORT: z.coerce.number().int().positive().default(3000),
