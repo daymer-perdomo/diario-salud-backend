@@ -26,6 +26,7 @@ import { BlogModule } from './blog/blog.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
 import { OrdersModule } from './orders/orders.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -56,6 +57,8 @@ import { OrdersModule } from './orders/orders.module';
         '/chatbot',
         '/orders/(.*)',
         '/orders',
+        '/users/(.*)',
+        '/users',
       ],
       serveStaticOptions: { index: 'index.html', fallthrough: true },
     }),
@@ -87,6 +90,7 @@ import { OrdersModule } from './orders/orders.module';
     InventoryModule,
     ChatbotModule,
     OrdersModule,
+    UsersModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
