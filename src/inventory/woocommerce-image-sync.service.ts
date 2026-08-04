@@ -50,13 +50,26 @@ export class WoocommerceImageSyncService implements OnModuleInit {
     return 'Basic ' + Buffer.from(`${key}:${secret}`).toString('base64');
   }
 
+  /// Incluye X-EcoFarma-Backend-Secret cuando esta configurado -- misma
+  /// regla de firewall de Cloudflare que permite el trafico de
+  /// WordpressPublishService a wp-json/wp/v2/* (ver WORDPRESS_BACKEND_SECRET
+  /// en env.validation.ts), reutilizada aqui porque cubre todo ecofarma.co.
+  private requestHeaders(): Record<string, string> {
+    const secret = this.config.get<string>('WORDPRESS_BACKEND_SECRET');
+    return {
+      Authorization: this.authHeader(),
+      'User-Agent': 'EcoFarma-Backend/1.0 (+https://ecofarma.co)',
+      ...(secret ? { 'X-EcoFarma-Backend-Secret': secret } : {}),
+    };
+  }
+
   /// Busca UN producto en WooCommerce por sku exacto. Devuelve la URL de
   /// la primera imagen si existe, o null si el sku no matchea nada o el
   /// producto no tiene imagen cargada.
   private async lookupImageBySku(sku: string): Promise<string | null> {
     const baseUrl = this.config.get<string>('WOOCOMMERCE_API_URL')!;
     const res = await fetch(`${baseUrl}/products?sku=${encodeURIComponent(sku)}`, {
-      headers: { Authorization: this.authHeader(), 'User-Agent': 'EcoFarma-Backend/1.0 (+https://ecofarma.co)' },
+      headers: this.requestHeaders(),
     });
     if (!res.ok) {
       throw new Error(`WooCommerce API error (${res.status}): ${await res.text()}`);

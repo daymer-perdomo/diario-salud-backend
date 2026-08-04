@@ -33,8 +33,10 @@ interface OpenDataApiSourceConfig {
 /// nacional agregado mas reciente en datos.gov.co es de 2021 (ver notas
 /// de la fuente INS en sources.seed-data.ts) -- sin este filtro se
 /// gastaba IA evaluando "noticias" de hace años. Mismo default que los
-/// otros adapters.
-const DEFAULT_MAX_AGE_DAYS = 3;
+/// otros adapters (subido de 3 a 7 el 2026-08-04, ver comentario
+/// equivalente en RssAdapter -- no cambia nada para INS: su dataset es de
+/// 2021, sigue en 0 items con cualquier ventana de dias razonable).
+const DEFAULT_MAX_AGE_DAYS = 7;
 /// Tope final tras el filtro de fecha -- mismo default que RssAdapter/
 /// HtmlScraperAdapter (ver sus comentarios equivalentes).
 const DEFAULT_MAX_ITEMS_PER_RUN = 3;

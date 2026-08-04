@@ -69,9 +69,9 @@ export interface HtmlScraperSourceConfig {
 /// Bajado de 30 a 3 el 2026-07-17 -- ver comentario equivalente en
 /// RssAdapter.
 const DEFAULT_MAX_ITEMS_PER_RUN = 3;
-/// Bajado de 30 a 3 el 2026-07-17 -- ver comentario equivalente en
+/// Subido de 3 a 7 el 2026-08-04 -- ver comentario equivalente en
 /// RssAdapter.
-const DEFAULT_MAX_AGE_DAYS = 3;
+const DEFAULT_MAX_AGE_DAYS = 7;
 
 @Injectable()
 export class HtmlScraperAdapter implements SourceAdapter {

@@ -36,13 +36,14 @@ interface RssSourceConfig {
 /// IngestionDispatcher.fetchMore() para el flujo de "buscar otras 3" que
 /// un validador puede disparar si ninguna de las primeras 3 le sirve.
 const DEFAULT_MAX_ITEMS_PER_FEED = 3;
-/// Bajado de 30 a 3 el 2026-07-17 (pedido explicito del usuario): no
-/// vale la pena gastar IA reescribiendo/verificando una noticia que ya
-/// tiene mas de 3 dias de publicada -- "Diario de la Salud" es un feed
-/// de novedades, no un archivo historico. Sigue siendo configurable por
-/// fuente (Source.maxAgeDays) si alguna institucion publica con menos
-/// frecuencia y igual se quiere cubrir.
-const DEFAULT_MAX_AGE_DAYS = 3;
+/// Subido de 3 a 7 el 2026-08-04 (pedido explicito del usuario): con 3
+/// dias, la mayoria de las fuentes (PAHO, CDC, DSSA, MINCIENCIAS)
+/// quedaban en 0 items casi toda corrida por publicar con una cadencia de
+/// varios dias, no diaria -- ver diagnostico real contra los feeds en
+/// vivo (PAHO quedaba justo 1 dia afuera de la ventana). Sigue siendo
+/// configurable por fuente (Source.maxAgeDays) si alguna institucion
+/// necesita una ventana distinta.
+const DEFAULT_MAX_AGE_DAYS = 7;
 
 @Injectable()
 export class RssAdapter implements SourceAdapter {

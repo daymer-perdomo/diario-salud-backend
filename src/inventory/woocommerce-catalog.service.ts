@@ -58,12 +58,18 @@ export class WoocommerceCatalogService {
   /// Node/undici no manda User-Agent por defecto -- una senal comun de
   /// "bot" para firewalls tipo Cloudflare (ver bloqueo real 2026-08-02,
   /// Ray ID a25033aa38ca5509, IP de Render bloqueada por el WAF de
-  /// ecofarma.co). Esto no garantiza esquivar un bloqueo explicito por
-  /// IP, pero es la unica mitigacion posible desde el codigo -- el
-  /// arreglo real es que el admin del Cloudflare de ecofarma.co
-  /// permita la IP de salida de Render (ver panel de Render > Connect).
+  /// ecofarma.co). Incluye X-EcoFarma-Backend-Secret cuando esta
+  /// configurado -- misma regla de firewall que permite el trafico de
+  /// WordpressPublishService a wp-json/wp/v2/* (ver WORDPRESS_BACKEND_SECRET
+  /// en env.validation.ts), reutilizada aqui porque cubre todo ecofarma.co.
   private requestHeaders(extra: Record<string, string> = {}): Record<string, string> {
-    return { Authorization: this.authHeader(), 'User-Agent': 'EcoFarma-Backend/1.0 (+https://ecofarma.co)', ...extra };
+    const secret = this.config.get<string>('WORDPRESS_BACKEND_SECRET');
+    return {
+      Authorization: this.authHeader(),
+      'User-Agent': 'EcoFarma-Backend/1.0 (+https://ecofarma.co)',
+      ...(secret ? { 'X-EcoFarma-Backend-Secret': secret } : {}),
+      ...extra,
+    };
   }
 
   private toSummary(p: WoocommerceProductApiResponse): WoocommerceProductSummary {
