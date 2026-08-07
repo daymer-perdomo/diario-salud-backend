@@ -476,6 +476,13 @@ model BlogPost {
   medicalValidationStatus String          @default("À valider si requis")
   publicationStatus       String          @default("Non publié")
 
+  // --- Publicacion (gate real hacia la API publica / WordPress) ---
+  // Independiente de publicationStatus (ese es texto libre heredado del
+  // Excel, sin semantica confiable). Solo `published: true` hace que
+  // GET /blog/public devuelva esta fila -- ver BlogService.findPublicPosts.
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+
   sections BlogPostSection[]
   faqs     BlogFaq[]
 

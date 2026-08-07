@@ -572,6 +572,11 @@ function app() {
     blogPage: 1,
     blogPageSize: 20,
     blogMeta: { total: 0, totalPages: 1 },
+    newBlogTitle: '',
+    newBlogHub: '',
+    newBlogBusy: false,
+    newBlogSectionHeading: {},
+    newBlogFaqQuestion: {},
 
     // Inventario -- alimenta al chatbot publico de disponibilidad/precio
     // (ver plan kind-giggling-cerf.md). Mantenimiento manual entre
@@ -1019,6 +1024,86 @@ function app() {
     },
     blogDraftStatusBadge(status) {
       return { PENDIENTE_REDACCION: 'badge-gray', EN_REDACCION: 'badge-amber', REDACTADO: 'badge-green' }[status] || 'badge-gray';
+    },
+
+    async createBlogPost() {
+      if (!this.newBlogTitle.trim() || !this.newBlogHub.trim()) return;
+      this.newBlogBusy = true;
+      try {
+        const r = await this.post('/blog/posts', { title: this.newBlogTitle.trim(), hub: this.newBlogHub.trim() });
+        if (r.ok) {
+          const created = await r.json();
+          this.blogPosts.unshift({ ...created, _count: { sections: 0, faqs: 0 }, _open: false, _detailBusy: false, _saveBusy: false });
+          this.blogMeta.total += 1;
+          this.newBlogTitle = ''; this.newBlogHub = '';
+          this.showToast('Post creado -- sigue sin publicar hasta que lo redactes y publiques');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo crear el post', 'error');
+        }
+      } finally { this.newBlogBusy = false; }
+    },
+
+    // Igual que las FAQs/secciones existentes, se agregan una por una desde
+    // el detalle abierto del post -- el input de texto vive en
+    // newBlogSectionHeading[post.id]/newBlogFaqQuestion[post.id] (un valor
+    // por post, indexado por id, ya que puede haber varios detalles
+    // abiertos a la vez en la lista).
+    async addBlogSection(post) {
+      const heading = (this.newBlogSectionHeading[post.id] || '').trim();
+      if (!heading) return;
+      post._addSectionBusy = true;
+      try {
+        const r = await this.post(`/blog/posts/${post.id}/sections`, { heading });
+        if (r.ok) {
+          const created = await r.json();
+          post.sections.push({ ...created, _editedBody: created.body || '', _busy: false });
+          post._count.sections += 1;
+          this.newBlogSectionHeading[post.id] = '';
+          this.showToast('Sección agregada');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo agregar la sección', 'error');
+        }
+      } finally { post._addSectionBusy = false; }
+    },
+
+    async addBlogFaq(post) {
+      const question = (this.newBlogFaqQuestion[post.id] || '').trim();
+      if (!question) return;
+      post._addFaqBusy = true;
+      try {
+        const r = await this.post(`/blog/posts/${post.id}/faqs`, { question });
+        if (r.ok) {
+          const created = await r.json();
+          post.faqs.push({ ...created, _editedAnswer: created.answer || '', _busy: false });
+          post._count.faqs += 1;
+          this.newBlogFaqQuestion[post.id] = '';
+          this.showToast('FAQ agregada');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo agregar la FAQ', 'error');
+        }
+      } finally { post._addFaqBusy = false; }
+    },
+
+    // Unica accion que hace que el post aparezca en WordPress (via
+    // GET /blog/public) -- ver comentario en BlogService.publishPost.
+    async toggleBlogPublish(post) {
+      post._publishBusy = true;
+      try {
+        const action = post.published ? 'unpublish' : 'publish';
+        const r = await this.post(`/blog/posts/${post.id}/${action}`, {});
+        if (r.ok) {
+          const updated = await r.json();
+          post.published = updated.published;
+          post.publishedAt = updated.publishedAt;
+          this.showToast(post.published ? 'Post publicado -- ya visible en WordPress' : 'Post despublicado');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo cambiar el estado de publicación', 'error');
+        }
+      } finally { post._publishBusy = false; }
     },
 
     // ── Inventario (alimenta al chatbot publico) ────────────────────────

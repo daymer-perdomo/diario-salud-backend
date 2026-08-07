@@ -1,5 +1,5 @@
       <p class="section-title">Blog</p>
-      <p class="section-sub">Redacción de los artículos de blog general de salud planificados en el Excel maestro (independiente de Diario de la Salud). Cada fila trae su título, sus H2 obligatorios y sus FAQs reales -- acá se escribe el contenido antes de pasar a relectura y validación médica.</p>
+      <p class="section-sub">Redacción de los artículos de blog general de salud (independiente de Diario de la Salud) -- planificados en el Excel maestro o creados aquí mismo con "+ Nuevo post". Un post nunca se muestra en WordPress (ecofarma.co/blogs/) hasta que se presiona "Publicar en WordPress" en su detalle -- crear, redactar y guardar cambios no lo publica por sí solo.</p>
 
       <div class="card">
         <div class="card-header">
@@ -9,6 +9,26 @@
           <button class="btn btn-secondary btn-sm" @click="loadBlogPosts()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Actualizar
+          </button>
+        </div>
+
+        <div class="inline-form">
+          <div class="field">
+            <label class="label">Título del post nuevo</label>
+            <input type="text" class="input" x-model="newBlogTitle" placeholder="Cómo elegir un protector solar" style="min-width:280px;" />
+          </div>
+          <div class="field">
+            <label class="label">Hub</label>
+            <input type="text" class="input" x-model="newBlogHub" placeholder="Dermocosmética" list="blog-hub-options" />
+            <datalist id="blog-hub-options">
+              <template x-for="h in blogHubs" :key="h">
+                <option :value="h"></option>
+              </template>
+            </datalist>
+          </div>
+          <button class="btn btn-primary btn-sm" @click="createBlogPost()" :disabled="newBlogBusy || !newBlogTitle.trim() || !newBlogHub.trim()">
+            <span x-show="newBlogBusy" class="spin"></span>
+            + Nuevo post
           </button>
         </div>
 
@@ -50,6 +70,7 @@
                 <th>Nivel regulatorio</th>
                 <th>Secciones / FAQs</th>
                 <th>Estado de redacción</th>
+                <th>WordPress</th>
               </tr>
             </thead>
             <template x-for="post in blogPosts" :key="post.id">
@@ -69,10 +90,11 @@
                   <td x-text="post.regulatoryLevel || '—'"></td>
                   <td x-text="`${post._count?.sections ?? 0} H2 · ${post._count?.faqs ?? 0} FAQ`"></td>
                   <td><span class="badge" :class="blogDraftStatusBadge(post.draftStatus)" x-text="blogDraftStatusLabel(post.draftStatus)"></span></td>
+                  <td><span class="badge" :class="post.published ? 'badge-green' : 'badge-gray'" x-text="post.published ? 'Publicado' : 'Sin publicar'"></span></td>
                 </tr>
 
                 <tr x-show="post._open" @click.stop>
-                  <td colspan="6" style="background:var(--panel-soft);">
+                  <td colspan="7" style="background:var(--panel-soft);">
                     <div class="article-detail" style="margin-top:0;border-top:none;padding-top:4px;">
 
                       <div x-show="post._detailBusy" class="loader"><span class="spin dark"></span></div>
@@ -85,6 +107,15 @@ Cluster: <span x-text="post.cluster || '—'"></span> · Tag principal: <span x-
 Intención: <span x-text="post.intention || '—'"></span> · Política de productos: <span x-text="post.productPolicy || '—'"></span> · Validación requerida: <span x-text="post.validationRequired || '—'"></span>
 Regla de generación IA: <span x-text="post.aiGenerationRule || '—'"></span>
 Notas: <span x-text="post.notes || '—'"></span>
+                          </div>
+
+                          <div class="flex items-center gap-2 mb-3" style="flex-wrap:wrap;">
+                            <span class="badge" :class="post.published ? 'badge-green' : 'badge-gray'" x-text="post.published ? 'Publicado en WordPress' : 'Sin publicar -- no visible en WordPress'"></span>
+                            <span class="muted text-mono" x-show="post.published" x-text="`desde ${new Date(post.publishedAt).toLocaleString('es-CO')}`"></span>
+                            <button class="btn btn-sm" :class="post.published ? 'btn-secondary' : 'btn-primary'" @click="toggleBlogPublish(post)" :disabled="post._publishBusy">
+                              <span x-show="post._publishBusy" class="spin"></span>
+                              <span x-text="post.published ? 'Despublicar' : 'Publicar en WordPress'"></span>
+                            </button>
                           </div>
 
                           <div class="article-detail-label">Título (editable)</div>
@@ -107,6 +138,17 @@ Notas: <span x-text="post.notes || '—'"></span>
                             </div>
                           </template>
 
+                          <div class="flex gap-2 items-end mb-4" style="flex-wrap:wrap;">
+                            <div class="field" style="margin-bottom:0;min-width:280px;">
+                              <label class="label">Nueva sección (H2)</label>
+                              <input type="text" class="input" x-model="newBlogSectionHeading[post.id]" placeholder="Título del H2" @keydown.enter="addBlogSection(post)" />
+                            </div>
+                            <button class="btn btn-secondary btn-sm" @click="addBlogSection(post)" :disabled="post._addSectionBusy || !(newBlogSectionHeading[post.id] || '').trim()">
+                              <span x-show="post._addSectionBusy" class="spin dark"></span>
+                              + Agregar sección
+                            </button>
+                          </div>
+
                           <div class="article-detail-label mt-4">FAQs (preguntas reales de AlsoAsked)</div>
                           <template x-for="faq in post.faqs" :key="faq.id">
                             <div class="mb-3" style="background:#fff;border:1px solid var(--line);border-radius:11px;padding:12px 14px;">
@@ -120,6 +162,17 @@ Notas: <span x-text="post.notes || '—'"></span>
                               <textarea class="input textarea" placeholder="Redactar la respuesta..." x-model="faq._editedAnswer"></textarea>
                             </div>
                           </template>
+
+                          <div class="flex gap-2 items-end mb-4" style="flex-wrap:wrap;">
+                            <div class="field" style="margin-bottom:0;min-width:280px;">
+                              <label class="label">Nueva FAQ</label>
+                              <input type="text" class="input" x-model="newBlogFaqQuestion[post.id]" placeholder="Pregunta" @keydown.enter="addBlogFaq(post)" />
+                            </div>
+                            <button class="btn btn-secondary btn-sm" @click="addBlogFaq(post)" :disabled="post._addFaqBusy || !(newBlogFaqQuestion[post.id] || '').trim()">
+                              <span x-show="post._addFaqBusy" class="spin dark"></span>
+                              + Agregar FAQ
+                            </button>
+                          </div>
 
                           <div class="flex gap-2 mt-4 items-center" style="flex-wrap:wrap;">
                             <div class="field" style="margin-bottom:0;min-width:220px;">
