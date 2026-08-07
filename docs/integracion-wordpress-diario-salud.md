@@ -250,3 +250,78 @@ Pendiente / fuera de alcance de esta entrega:
   "diario-de-la-salud" — como ya no hay posts nativos ahí, esos widgets deberían
   mostrarse vacíos, pero no se auditó exhaustivamente el resto del sitio en busca de
   referencias a esa categoría.
+
+---
+
+## 9. Segunda sección de contenido: Blog (`[diario_blog]`, /blogs/) — 2026-08-07
+
+Adicional al Diario de la Salud, el backend tiene un módulo `src/blog/*` (modelos
+`BlogPost`/`BlogPostSection`/`BlogFaq`/`BlogTag`) para posts SEO con taxonomía hub/sub-hub,
+secciones H2 y FAQs, importados desde un Excel maestro. Es un tipo de contenido totalmente
+distinto a Articles: sin pipeline de validación (grounding/compliance/revisor humano), sin
+`riskLevel`, sin `imageUrl`. Ver `scripts/import-blog-master.ts` para el import.
+
+**Endpoint público nuevo** (mismo patrón que `/articles`, mismo `PUBLIC_API_KEY`):
+- `GET /blog/public?page=&pageSize=&hub=` — listado. **Sin filtro de estado** (decisión
+  explícita: como `BlogPost` no tiene un campo confiable de "aprobado para publicar"
+  todavía —`draftStatus`/`reviewStatus`/`medicalValidationStatus`/`publicationStatus` no se
+  usan para gating—, se expone todo lo que exista. Revisar esto si el volumen de contenido
+  crece o se define un estado real de aprobación).
+- `GET /blog/public/:id` — detalle con `sections` y `faqs` ordenadas.
+- Implementado en `src/blog/blog-public.controller.ts` + métodos `findPublicPosts`/
+  `findPublicPostById`/`toPublicBlogPost` en `src/blog/blog.service.ts`. Interfaz
+  `PublicBlogPost` ahí mismo — nunca expone `aiGenerationRule`, `notes`,
+  `regulatoryLevel`, `productPolicy`, `sourceFile`, etc.
+- **Importante:** al 2026-08-07 la base de datos de **producción** tiene 0 `BlogPost` — el
+  import de prueba (~10 filas) solo se corrió en local. El endpoint funciona correctamente
+  pero devuelve `{"data":[],"meta":{...,"total":0}}` hasta que se importe contenido real en
+  producción.
+
+**Lado de WordPress:**
+- **`snippet_id=338447`** "EcoFarma - Blog (shortcode via API)" — hermano del 338437,
+  registra `[diario_blog]`. Copia fuente:
+  [`docs/wpcode-diario-blog-shortcode.php`](wpcode-diario-blog-shortcode.php).
+- **Página "Blogs"** en `https://ecofarma.co/blogs/` (post_id=338445), contenido literal
+  `[diario_blog]` — a diferencia de "Artículos", esta SÍ es una Página normal con contenido
+  editable (no la posts-page del sitio), así que no necesitó un snippet de "inserción"
+  como el 338438.
+- **Migas de pan compartidas**: `ecofarma_breadcrumb_nav()`/`ecofarma_breadcrumb_css()` y
+  las constantes `ECOFARMA_NAV_ARTICULOS_URL`/`ECOFARMA_NAV_BLOGS_URL` están definidas
+  IDÉNTICAS en AMBOS snippets (338437 y 338447), cada una con su guard
+  (`function_exists`/`defined`). Si tocas estos nombres, cámbialos en los dos archivos a la
+  vez (ver el comentario de cabecera en `wpcode-diario-blog-shortcode.php`).
+
+---
+
+## 10. Lección crítica: cómo verificar que un snippet de WPCode SÍ se guardó
+
+El editor de código de WPCode usa **CodeMirror**, que virtualiza las líneas — solo renderiza
+en el DOM las líneas actualmente visibles en el viewport del editor. Esto rompe una forma
+obvia de verificar que un guardado se aplicó:
+
+```js
+// MAL -- da falso negativo si el texto buscado está en una línea no renderizada
+document.body.innerText.includes('mi_funcion_nueva')
+```
+
+La única forma confiable de leer el contenido REAL y COMPLETO del editor (esté o no
+scrolleado a la vista) es a través de la instancia de CodeMirror directamente:
+
+```js
+// BIEN -- devuelve el documento completo sin importar el scroll
+document.querySelector('.CodeMirror').CodeMirror.getValue()
+```
+
+El 2026-08-07 esto causó una sesión larga de debugging fantasma: varios guardados de
+snippets SÍ se habían aplicado correctamente en el primer intento, pero la verificación con
+`document.body.innerText` reportaba "no guardado" porque el código buscado estaba fuera del
+área visible del editor en ese momento — llevando a reintentar el guardado innecesariamente
+varias veces (sin causar daño, gracias a los guards `function_exists()`/`defined()`, pero
+sí perdiendo tiempo). Al mismo tiempo se investigó (sin necesidad, en retrospectiva) una
+supuesta discrepancia de escala de píxeles entre capturas de pantalla y coordenadas reales
+de clic (`getBoundingClientRect()` mostraba `devicePixelRatio: 2` y coordenadas distintas a
+las de la captura) — las coordenadas de captura de pantalla (screenshot-space) resultaron
+ser las correctas para la herramienta de automatización del navegador; no hacía falta
+"corregirlas" multiplicando por el device pixel ratio. **Siempre usa
+`CodeMirror.getValue()` para verificar contenido guardado antes de sospechar de las
+coordenadas de clic.**
