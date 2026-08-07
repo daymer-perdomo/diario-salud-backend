@@ -261,21 +261,44 @@ secciones H2 y FAQs, importados desde un Excel maestro. Es un tipo de contenido 
 distinto a Articles: sin pipeline de validación (grounding/compliance/revisor humano), sin
 `riskLevel`, sin `imageUrl`. Ver `scripts/import-blog-master.ts` para el import.
 
-**Endpoint público nuevo** (mismo patrón que `/articles`, mismo `PUBLIC_API_KEY`):
-- `GET /blog/public?page=&pageSize=&hub=` — listado. **Sin filtro de estado** (decisión
-  explícita: como `BlogPost` no tiene un campo confiable de "aprobado para publicar"
-  todavía —`draftStatus`/`reviewStatus`/`medicalValidationStatus`/`publicationStatus` no se
-  usan para gating—, se expone todo lo que exista. Revisar esto si el volumen de contenido
-  crece o se define un estado real de aprobación).
-- `GET /blog/public/:id` — detalle con `sections` y `faqs` ordenadas.
+**Endpoint público** (mismo patrón que `/articles`, mismo `PUBLIC_API_KEY`):
+- `GET /blog/public?page=&pageSize=&hub=` — listado. **Filtrado por `published: true`**
+  (ver sección 9.1 — corregido el 2026-08-07, antes no filtraba nada).
+- `GET /blog/public/:id` — detalle con `sections` y `faqs` ordenadas. `404` tanto si no
+  existe como si existe pero no está publicado.
 - Implementado en `src/blog/blog-public.controller.ts` + métodos `findPublicPosts`/
   `findPublicPostById`/`toPublicBlogPost` en `src/blog/blog.service.ts`. Interfaz
   `PublicBlogPost` ahí mismo — nunca expone `aiGenerationRule`, `notes`,
   `regulatoryLevel`, `productPolicy`, `sourceFile`, etc.
-- **Importante:** al 2026-08-07 la base de datos de **producción** tiene 0 `BlogPost` — el
-  import de prueba (~10 filas) solo se corrió en local. El endpoint funciona correctamente
-  pero devuelve `{"data":[],"meta":{...,"total":0}}` hasta que se importe contenido real en
-  producción.
+
+### 9.1. Crear y publicar un post desde el panel — 2026-08-07
+
+Antes de esta fecha, la única forma de meter datos en `BlogPost` era el import masivo del
+Excel (`scripts/import-blog-master.ts`), y `/blog/public` no filtraba por ningún estado —
+cualquier fila, sin importar cómo llegara, se mostraba de inmediato en WordPress. Ambas
+cosas se corrigieron:
+
+- **`published: Boolean` + `publishedAt: DateTime?`** (nuevos campos en `BlogPost`,
+  migración `20260807220608_add_blog_published_state`) son el único gate real hacia
+  `/blog/public`. Todo lo demás (`draftStatus`, `reviewStatus`, `medicalValidationStatus`,
+  `publicationStatus`) sigue siendo texto/estado heredado del Excel, sin efecto en qué se
+  publica.
+- **Crear un post desde cero** (sin pasar por el Excel): panel → Blog → "+ Nuevo post"
+  (título + hub) → `POST /blog/posts`. Nace con `published: false`. `globalId` (NOT NULL +
+  unique en el schema, normalmente traza la fila del Excel) se genera sintético
+  (`panel-<uuid>`) para posts creados así.
+- **Agregar contenido**: dentro del detalle del post, "+ Agregar sección"/"+ Agregar FAQ"
+  (`POST /blog/posts/:id/sections` y `.../faqs`) van sumando H2s y preguntas una por una —
+  a diferencia del import del Excel, que trae todo de una vez.
+- **Publicar**: botón "Publicar en WordPress" en el detalle del post
+  (`POST /blog/posts/:id/publish` / `.../unpublish`). Es la única acción que lo hace
+  aparecer en `GET /blog/public` y por lo tanto en `https://ecofarma.co/blogs/` —
+  crear el post, redactar secciones/FAQs o guardar cambios de título/slug **no** lo publican
+  por sí solos.
+- Verificado end-to-end en local el 2026-08-07: crear → confirmar ausente en
+  `/blog/public` → agregar sección + FAQ → publicar → confirmar presente con el contenido
+  completo → despublicar → confirmar que vuelve a desaparecer. No se corrió esta prueba
+  contra producción para no dejar un post de prueba en la base de datos real.
 
 **Lado de WordPress:**
 - **`snippet_id=338447`** "EcoFarma - Blog (shortcode via API)" — hermano del 338437,
