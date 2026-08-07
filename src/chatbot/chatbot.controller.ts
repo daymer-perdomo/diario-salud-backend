@@ -1,5 +1,6 @@
 import { Body, Controller, HttpException, HttpStatus, Logger, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { ChatbotService } from './chatbot.service';
 import { ChatRateLimiterService, ChatRateLimitedError } from './chat-rate-limiter.service';
@@ -12,6 +13,7 @@ import { LlmBudgetExceededError } from '../llm/llm-budget.service';
 /// widget de WordPress, sin cuenta de usuario. La proteccion contra abuso
 /// es el ThrottlerGuard global (app.module.ts) + @Throttle mas estricto
 /// aca + ChatRateLimiterService por sesion/IP -- nunca autenticacion.
+@ApiTags('Chatbot (publico, sin autenticacion)')
 @Controller('chatbot')
 export class ChatbotController {
   private readonly logger = new Logger(ChatbotController.name);
@@ -22,6 +24,9 @@ export class ChatbotController {
   ) {}
 
   @Post('message')
+  @ApiOperation({ summary: 'Enviar un mensaje al chatbot de atencion al cliente' })
+  @ApiResponse({ status: 429, description: 'Limite de mensajes excedido para esta sesion/IP.' })
+  @ApiResponse({ status: 503, description: 'Presupuesto de IA del chatbot agotado (MAX_LLM_BUDGET_CHATBOT_USD).' })
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async sendMessage(@Body() dto: SendMessageDto, @Req() req: Request) {
     const ipHash = hashIp(req.ip ?? 'unknown');

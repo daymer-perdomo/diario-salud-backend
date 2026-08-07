@@ -106,6 +106,28 @@ export const envSchema = z.object({
   /// regla del lado de Cloudflare con el mismo valor.
   WORDPRESS_BACKEND_SECRET: z.string().optional(),
   WOOCOMMERCE_IMAGE_SYNC_BATCH_SIZE: z.coerce.number().int().positive().default(100),
+  /// Clave estatica para la API de integracion que consume el plugin de
+  /// WordPress (ver IntegrationController): el WordPress hace pull de los
+  /// cambios de inventario pendientes y push de su catalogo, porque el
+  /// sentido contrario (backend -> ecofarma.co) lo bloquea Cloudflare con
+  /// 403 desde las IPs de Render. Separada de PUBLIC_API_KEY a proposito:
+  /// esta permite escribir (confirmar cambios, subir catalogo) y vive en un
+  /// sitio de terceros, asi que debe poder rotarse sin romper la API
+  /// publica de articulos. Sin definir, el modulo de integracion no expone
+  /// nada y responde 503 (no rompe el arranque).
+  INTEGRATION_API_KEY: z
+    .string()
+    .min(24, 'INTEGRATION_API_KEY debe tener al menos 24 caracteres')
+    .optional(),
+
+  /// Basic Auth que protege la UI de Swagger (/api) -- la API completa
+  /// mezcla rutas de panel interno (JWT), integraciones (API key propia)
+  /// y endpoints publicos (chatbot, articles), asi que la documentacion
+  /// en si misma no debe quedar abierta a cualquiera. Con default en dev;
+  /// en produccion hay que definir credenciales reales (ver Dockerfile/
+  /// render.yaml) -- main.ts loguea una advertencia si detecta el default.
+  SWAGGER_USER: z.string().default('admin'),
+  SWAGGER_PASSWORD: z.string().default('change-me-in-production'),
 
   PORT: z.coerce.number().int().positive().default(3000),
   /// 'staging' es un ambiente real y distinto de 'production' -- probar

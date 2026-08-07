@@ -1371,21 +1371,49 @@ function app() {
       }
     },
 
+    // Estado que el admin ve como "actual": si hay un cambio en cola, ese es
+    // el que cuenta para el botón (si no, tocar dos veces volvería a encolar
+    // lo mismo en vez de deshacerlo). catalogVisibility/stockStatus siguen
+    // siendo el estado REAL en WooCommerce y se muestran aparte.
+    wooEffectiveHidden(product) {
+      return product.pendingHidden !== undefined ? product.pendingHidden : product.catalogVisibility === 'hidden';
+    },
+
+    wooEffectiveOutOfStock(product) {
+      return product.pendingOutOfStock !== undefined ? product.pendingOutOfStock : product.stockStatus === 'outofstock';
+    },
+
+    // La respuesta OMITE estos campos cuando no aplican, y Object.assign no
+    // borra lo que no viene -- sin esto un "Falló" viejo quedaría pegado en
+    // pantalla después de reintentar.
+    wooResetChangeFlags(product, updated) {
+      for (const k of ['pendingHidden', 'pendingOutOfStock', 'failedHidden', 'failedHiddenError', 'failedOutOfStock', 'failedOutOfStockError']) {
+        product[k] = updated[k];
+      }
+    },
+
+    // Cloudflare bloquea el tráfico entrante desde el backend hacia
+    // ecofarma.co, así que esto ya no escribe en WooCommerce: encola el
+    // cambio y el plugin del sitio lo aplica cuando pasa a preguntar.
     async toggleWoocommerceAvailability(product) {
       product._busy = true;
       try {
-        const hidden = product.catalogVisibility !== 'hidden';
+        const hidden = !this.wooEffectiveHidden(product);
         const r = await this.patch(`/inventory/woocommerce/products/${product.id}/availability`, { hidden });
         if (r.ok) {
-          Object.assign(product, await r.json());
-          // Mantiene la lista de "no disponibles" en sync sin recargar,
-          // sin importar si el toggle vino del buscador o de esa misma lista.
-          this.wooHiddenProducts = this.wooHiddenProducts.filter((p) => p.id !== product.id);
-          if (hidden) this.wooHiddenProducts.unshift({ id: product.id, sku: product.sku, name: product.name, hiddenAt: new Date().toISOString() });
-          this.showToast(hidden ? 'Producto marcado como no disponible' : 'Producto marcado como disponible');
+          const updated = await r.json();
+          // Asignados explícitamente porque la respuesta OMITE el campo
+          // cuando no hay nada pendiente, y Object.assign no borraría un
+          // valor viejo.
+          this.wooResetChangeFlags(product, updated);
+          Object.assign(product, updated);
+          // La lista de "no disponibles" refleja lo que está oculto DE VERDAD
+          // en WooCommerce, así que no se toca acá: se actualiza cuando el
+          // plugin confirma que aplicó el cambio.
+          this.showToast(hidden ? 'Cambio encolado: quedará no disponible en unos minutos' : 'Cambio encolado: quedará disponible en unos minutos');
         } else {
           const b = await r.json().catch(() => ({}));
-          this.showToast(b?.message || 'No se pudo actualizar el producto', 'error');
+          this.showToast(b?.message || 'No se pudo encolar el cambio', 'error');
         }
       } finally { product._busy = false; }
     },
@@ -1402,14 +1430,16 @@ function app() {
     async toggleWoocommerceStockStatus(product) {
       product._stockBusy = true;
       try {
-        const outOfStock = product.stockStatus === 'instock';
+        const outOfStock = !this.wooEffectiveOutOfStock(product);
         const r = await this.patch(`/inventory/woocommerce/products/${product.id}/stock-status`, { outOfStock });
         if (r.ok) {
-          Object.assign(product, await r.json());
-          this.showToast(outOfStock ? 'Producto marcado como agotado' : 'Producto marcado con stock');
+          const updated = await r.json();
+          this.wooResetChangeFlags(product, updated);
+          Object.assign(product, updated);
+          this.showToast(outOfStock ? 'Cambio encolado: quedará agotado en unos minutos' : 'Cambio encolado: quedará con stock en unos minutos');
         } else {
           const b = await r.json().catch(() => ({}));
-          this.showToast(b?.message || 'No se pudo actualizar el stock', 'error');
+          this.showToast(b?.message || 'No se pudo encolar el cambio', 'error');
         }
       } finally { product._stockBusy = false; }
     },

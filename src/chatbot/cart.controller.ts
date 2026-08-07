@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpException, HttpStatus, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { ChatCartService } from './chat-cart.service';
 import { ChatRateLimiterService, ChatRateLimitedError } from './chat-rate-limiter.service';
@@ -12,6 +13,7 @@ import { hashIp } from './hash-ip.util';
 /// solo por rate limiting (nunca autenticacion) -- el carrito es parte
 /// de la misma conversacion de chat, solo que las cantidades/precios se
 /// manejan de forma determinista en vez de pasar por el LLM.
+@ApiTags('Chatbot (publico, sin autenticacion)')
 @Controller('chatbot/cart')
 export class CartController {
   constructor(
@@ -32,12 +34,14 @@ export class CartController {
   }
 
   @Get()
+  @ApiOperation({ summary: 'Obtener el carrito borrador de una conversacion' })
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async getCart(@Query() dto: GetCartDto) {
     return this.cartService.getCart(dto.conversationId);
   }
 
   @Post('items')
+  @ApiOperation({ summary: 'Agregar/actualizar/quitar (qty<=0) un sku del carrito' })
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async addItem(@Body() dto: AddCartItemDto, @Req() req: Request) {
     await this.checkRateLimit(dto.conversationId, req);
@@ -45,6 +49,7 @@ export class CartController {
   }
 
   @Post('submit')
+  @ApiOperation({ summary: 'Enviar el carrito como una solicitud de pedido' })
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async submit(@Body() dto: SubmitCartDto, @Req() req: Request) {
     await this.checkRateLimit(dto.conversationId, req);
@@ -55,6 +60,9 @@ export class CartController {
   /// solicitud" del widget) -- no exige conversationId, alguien puede
   /// revisar su pedido desde otra sesion/dispositivo con solo el codigo.
   @Get('status/:reference')
+  @ApiOperation({ summary: 'Consultar el estado de un pedido por su codigo de referencia' })
+  @ApiParam({ name: 'reference' })
+  @ApiResponse({ status: 404, description: 'No existe una solicitud con ese numero de referencia.' })
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async getStatus(@Param('reference') reference: string) {
     const order = await this.cartService.findByReference(reference);

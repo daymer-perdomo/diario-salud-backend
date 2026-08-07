@@ -9,7 +9,8 @@
           </div>
         </div>
         <div x-show="invWooOpen">
-          <p class="section-sub" style="padding:0 16px 8px;">Catálogo REAL de WooCommerce (~42,000 productos) -- completamente aparte del inventario de abajo. No hay copia local, cada búsqueda consulta el sitio en vivo. Marcar "no disponible" oculta el producto de la tienda y el buscador de ecofarma.co (la URL directa sigue funcionando), sin importar su stock.</p>
+          <p class="section-sub" style="padding:0 16px 8px;">Catálogo REAL de WooCommerce (~42,000 productos) -- completamente aparte del inventario de abajo. Marcar "no disponible" oculta el producto de la tienda y el buscador de ecofarma.co (la URL directa sigue funcionando), sin importar su stock.</p>
+          <p class="section-sub" style="padding:0 16px 8px;">Los cambios <strong>no son instantáneos</strong>: quedan en cola y el plugin de ecofarma.co los aplica en su próxima corrida (unos minutos). Mientras eso pasa se muestran con la etiqueta "Pendiente". La búsqueda tampoco es en vivo: consulta la copia del catálogo que sube ese mismo plugin.</p>
           <div class="inline-form">
             <div class="field" style="flex:2;">
               <label class="label">Buscar en WooCommerce (nombre, SKU o EAN)</label>
@@ -46,17 +47,27 @@
                     <td>
                       <span class="badge" :class="p.stockStatus === 'instock' ? 'badge-green' : 'badge-gray'" x-text="p.stockStatus === 'instock' ? 'Con stock' : 'Agotado'"></span>
                       <span x-show="!p.manageStock" class="badge badge-amber" title="Este producto ya no rastrea cantidad real en WooCommerce -- alguien lo marcó manualmente desde acá">Manual</span>
+                      <!-- El estado de arriba es el REAL en WooCommerce; esto es lo que
+                           todavía no se aplicó, para no mentir diciendo que ya cambió. -->
+                      <span x-show="p.pendingOutOfStock !== undefined" class="badge badge-amber" :title="`Pendiente de aplicar en ecofarma.co: ${p.pendingOutOfStock ? 'agotado' : 'con stock'}`" x-text="`Pendiente: ${p.pendingOutOfStock ? 'agotado' : 'con stock'}`"></span>
+                      <!-- Un fallo no se reintenta solo: se muestra acá con su motivo
+                           para que se pueda volver a intentar a mano. -->
+                      <span x-show="p.failedOutOfStock !== undefined" class="badge badge-red" :title="p.failedOutOfStockError || 'El sitio no reportó el motivo'" x-text="`Falló: ${p.failedOutOfStock ? 'agotado' : 'con stock'}`"></span>
                     </td>
-                    <td><span class="badge" :class="p.catalogVisibility === 'hidden' ? 'badge-amber' : 'badge-green'" x-text="p.catalogVisibility === 'hidden' ? 'No disponible' : 'Visible'"></span></td>
+                    <td>
+                      <span class="badge" :class="p.catalogVisibility === 'hidden' ? 'badge-amber' : 'badge-green'" x-text="p.catalogVisibility === 'hidden' ? 'No disponible' : 'Visible'"></span>
+                      <span x-show="p.pendingHidden !== undefined" class="badge badge-amber" :title="`Pendiente de aplicar en ecofarma.co: ${p.pendingHidden ? 'no disponible' : 'visible'}`" x-text="`Pendiente: ${p.pendingHidden ? 'no disponible' : 'visible'}`"></span>
+                      <span x-show="p.failedHidden !== undefined" class="badge badge-red" :title="p.failedHiddenError || 'El sitio no reportó el motivo'" x-text="`Falló: ${p.failedHidden ? 'no disponible' : 'visible'}`"></span>
+                    </td>
                     <td>
                       <div class="flex items-center gap-2" style="flex-wrap:wrap;">
                         <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceAvailability(p)" :disabled="p._busy">
                           <span x-show="p._busy" class="spin dark"></span>
-                          <span x-text="p.catalogVisibility === 'hidden' ? 'Marcar disponible' : 'Marcar no disponible'"></span>
+                          <span x-text="wooEffectiveHidden(p) ? 'Marcar disponible' : 'Marcar no disponible'"></span>
                         </button>
                         <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceStockStatus(p)" :disabled="p._stockBusy">
                           <span x-show="p._stockBusy" class="spin dark"></span>
-                          <span x-text="p.stockStatus === 'instock' ? 'Marcar agotado' : 'Marcar con stock'"></span>
+                          <span x-text="wooEffectiveOutOfStock(p) ? 'Marcar con stock' : 'Marcar agotado'"></span>
                         </button>
                       </div>
                     </td>
@@ -96,10 +107,13 @@
                     <td style="max-width:320px;" x-text="p.name"></td>
                     <td x-text="formatDateTime(p.hiddenAt)"></td>
                     <td>
-                      <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceAvailability(p)" :disabled="p._busy">
-                        <span x-show="p._busy" class="spin dark"></span>
-                        Marcar disponible
-                      </button>
+                      <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+                        <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceAvailability(p)" :disabled="p._busy">
+                          <span x-show="p._busy" class="spin dark"></span>
+                          <span x-text="wooEffectiveHidden(p) ? 'Marcar disponible' : 'Marcar no disponible'"></span>
+                        </button>
+                        <span x-show="p.pendingHidden !== undefined" class="badge badge-amber" x-text="`Pendiente: ${p.pendingHidden ? 'no disponible' : 'visible'}`"></span>
+                      </div>
                     </td>
                   </tr>
                 </template>

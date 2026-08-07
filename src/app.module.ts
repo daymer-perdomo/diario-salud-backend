@@ -28,6 +28,7 @@ import { ChatbotModule } from './chatbot/chatbot.module';
 import { OrdersModule } from './orders/orders.module';
 import { UsersModule } from './users/users.module';
 import { WordpressModule } from './wordpress/wordpress.module';
+import { IntegrationModule } from './integration/integration.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { WordpressModule } from './wordpress/wordpress.module';
         '/users',
         '/wordpress/(.*)',
         '/wordpress',
+        '/integration/(.*)',
       ],
       serveStaticOptions: { index: 'index.html', fallthrough: true },
     }),
@@ -95,6 +97,7 @@ import { WordpressModule } from './wordpress/wordpress.module';
     OrdersModule,
     UsersModule,
     WordpressModule,
+    IntegrationModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

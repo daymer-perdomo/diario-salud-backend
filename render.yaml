@@ -114,6 +114,11 @@ services:
       # trafico hacia wp-json/wp/v2/* desde la IP de salida de Render.
       - key: WORDPRESS_BACKEND_SECRET
         sync: false
+      # Clave que usa el plugin de WordPress para consumir /integration/*
+      # (ver docs/integracion-inventario-wordpress.md). Se comparte con el
+      # desarrollador de WordPress por canal seguro, por eso sync: false.
+      - key: INTEGRATION_API_KEY
+        sync: false
 
   # Copia identica del servicio de produccion, apuntando a su propia DB/
   # Redis. Desplegar y validar aqui primero siempre.

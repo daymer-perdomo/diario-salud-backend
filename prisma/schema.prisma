@@ -333,7 +333,7 @@ model Article {
   /// sincronizado (candidato para el proximo intento) o WORDPRESS_* no
   /// configurado. Nunca se sobreescribe una vez creado -- WordpressPublishService
   /// no reintenta sobre articulos que ya tienen wordpressPostId.
-  wordpressPostId Int?
+  wordpressPostId   Int?
 
   // --- Deduplicacion ---
   isDuplicateOf String?
@@ -652,6 +652,82 @@ model WoocommerceHiddenProduct {
   hiddenAt DateTime @default(now())
 
   @@map("woocommerce_hidden_products")
+}
+
+/// Copia LOCAL y liviana del catalogo de WooCommerce, que WordPress empuja
+/// a este backend (POST /integration/woocommerce/catalog).
+///
+/// POR QUE EXISTE (cambio de estrategia 2026-08-05): Cloudflare responde 403
+/// a TODO el trafico entrante desde las IPs de datacenter de Render hacia
+/// ecofarma.co -- comprobado que la misma peticion, con las mismas llaves y
+/// el mismo User-Agent, funciona (200) desde una IP residencial. El header
+/// X-EcoFarma-Backend-Secret no sirve porque nunca se creo la regla de WAF
+/// que lo reconoce (evidencia: WoocommerceImageSyncService lo envia y
+/// tambien recibio 403). Sin acceso a Cloudflare, la unica direccion viable
+/// es que WordPress SIEMPRE inicie la conexion, asi que la busqueda del
+/// dashboard dejo de ser en vivo y ahora consulta esta tabla.
+///
+/// Los campos son un espejo 1:1 de WoocommerceProductSummary para que el
+/// dashboard no note la diferencia. `id` es el id del producto EN
+/// WooCommerce, no un uuid local.
+model WoocommerceCatalogItem {
+  id                Int      @id
+  sku               String
+  name              String
+  permalink         String
+  imageUrl          String?
+  stockStatus       String
+  catalogVisibility String
+  manageStock       Boolean
+  syncedAt          DateTime @updatedAt
+
+  @@index([sku])
+  @@index([name])
+  @@map("woocommerce_catalog_items")
+}
+
+/// Que operacion pendiente hay que aplicar en WooCommerce. Ambas son
+/// booleanas, por eso comparten la columna `value` en vez de un Json:
+///   VISIBILITY   + value=true -> catalog_visibility = "hidden"
+///   STOCK_STATUS + value=true -> stock_status = "outofstock"
+enum WoocommercePendingKind {
+  VISIBILITY
+  STOCK_STATUS
+}
+
+enum WoocommercePendingStatus {
+  PENDIENTE
+  APLICADO
+  FALLIDO
+}
+
+/// Cola de cambios que el dashboard quiere aplicar al catalogo de
+/// WooCommerce y que WordPress recoge y ejecuta localmente (ver el modelo
+/// WoocommerceCatalogItem para el porque de invertir la direccion).
+///
+/// El dashboard ya NO escribe en WooCommerce: encola aca. WordPress pide los
+/// PENDIENTE, los aplica con sus propias funciones (sin HTTP, sin Cloudflare
+/// de por medio) y confirma el resultado. Si el mismo producto recibe dos
+/// cambios del mismo tipo, se aplican en orden de creacion: el estado final
+/// queda correcto, y se conserva el historial de FALLIDO para diagnosticar.
+model WoocommercePendingChange {
+  id           String                   @id @default(uuid())
+  productId    Int
+  kind         WoocommercePendingKind
+  value        Boolean
+  status       WoocommercePendingStatus @default(PENDIENTE)
+  errorMessage String?
+  createdAt    DateTime                 @default(now())
+  appliedAt    DateTime?
+
+  /// Quien lo pidio desde el panel -- misma trazabilidad que el resto de
+  /// acciones de admin. Sin relacion formal para no bloquear el borrado de
+  /// un usuario por tener cambios historicos a su nombre.
+  requestedByUserId String?
+
+  @@index([status, createdAt])
+  @@index([productId])
+  @@map("woocommerce_pending_changes")
 }
 
 /// Precio en Decimal (nunca Float) por la misma razon de siempre con
