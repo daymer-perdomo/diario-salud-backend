@@ -1049,12 +1049,18 @@ function app() {
     // newBlogSectionHeading[post.id]/newBlogFaqQuestion[post.id] (un valor
     // por post, indexado por id, ya que puede haber varios detalles
     // abiertos a la vez en la lista).
+    // Nota: no se usa this.post(...) aqui a proposito -- estos metodos se
+    // invocan desde dentro de x-for="post in blogPosts", y Alpine sombrea
+    // this.post (el helper HTTP) con el item del loop mientras dura esa
+    // evaluacion, dejando "this.post is not a function". this._fetch
+    // evita el nombre en conflicto sin tener que renombrar la variable del
+    // x-for en toda la plantilla existente.
     async addBlogSection(post) {
       const heading = (this.newBlogSectionHeading[post.id] || '').trim();
       if (!heading) return;
       post._addSectionBusy = true;
       try {
-        const r = await this.post(`/blog/posts/${post.id}/sections`, { heading });
+        const r = await this._fetch(`/blog/posts/${post.id}/sections`, { method: 'POST', headers: this.headers(), body: JSON.stringify({ heading }) });
         if (r.ok) {
           const created = await r.json();
           post.sections.push({ ...created, _editedBody: created.body || '', _busy: false });
@@ -1073,7 +1079,7 @@ function app() {
       if (!question) return;
       post._addFaqBusy = true;
       try {
-        const r = await this.post(`/blog/posts/${post.id}/faqs`, { question });
+        const r = await this._fetch(`/blog/posts/${post.id}/faqs`, { method: 'POST', headers: this.headers(), body: JSON.stringify({ question }) });
         if (r.ok) {
           const created = await r.json();
           post.faqs.push({ ...created, _editedAnswer: created.answer || '', _busy: false });
@@ -1093,7 +1099,7 @@ function app() {
       post._publishBusy = true;
       try {
         const action = post.published ? 'unpublish' : 'publish';
-        const r = await this.post(`/blog/posts/${post.id}/${action}`, {});
+        const r = await this._fetch(`/blog/posts/${post.id}/${action}`, { method: 'POST', headers: this.headers(), body: JSON.stringify({}) });
         if (r.ok) {
           const updated = await r.json();
           post.published = updated.published;
