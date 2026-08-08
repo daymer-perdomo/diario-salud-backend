@@ -103,16 +103,24 @@ export class WoocommerceCatalogService {
   }
 
   /// Lo que WordPress reporto como agotado/oculto en su ultima corrida
-  /// (ver docs/wpcode-inventario-disponibilidad-reporte.php) -- a
-  /// diferencia de listHiddenProducts, esto refleja el estado REAL en
-  /// WooCommerce ahora mismo (segun el ultimo reporte), sin importar
-  /// desde donde se haya marcado (este dashboard, wp-admin directo, o
-  /// una sincronizacion con el proveedor).
+  /// (ver docs/wpcode-inventario-disponibilidad.php) -- a diferencia de
+  /// listHiddenProducts, esto refleja el estado REAL en WooCommerce ahora
+  /// mismo (segun el ultimo reporte), sin importar desde donde se haya
+  /// marcado (este dashboard, wp-admin directo, o una sincronizacion con
+  /// el proveedor).
+  ///
+  /// Pasa por withPending() igual que searchProducts() -- sin esto, un
+  /// cambio recien encolado desde ESTA MISMA tabla desaparecia al
+  /// recargar: el catalogo local todavia no refleja el cambio (WordPress
+  /// no lo aplico todavia) y sin el flag pendingHidden/pendingOutOfStock
+  /// el boton volvia a mostrar "Marcar no disponible" como si nada
+  /// estuviera en cola (bug reportado 2026-08-08).
   async listUnavailableProducts() {
-    return this.prisma.woocommerceCatalogItem.findMany({
+    const items = await this.prisma.woocommerceCatalogItem.findMany({
       where: { OR: [{ stockStatus: 'outofstock' }, { catalogVisibility: { not: 'visible' } }] },
       orderBy: { syncedAt: 'desc' },
     });
+    return this.withPending(items);
   }
 
   /// Encola "marcar/desmarcar como no disponible". WoocommerceHiddenProduct
