@@ -13,8 +13,8 @@
           </button>
         </div>
         <div x-show="invWooOpen" style="padding:0 16px 16px;">
-          <p class="section-sub">Catálogo REAL de WooCommerce (~42,000 productos) -- completamente aparte del inventario de abajo. Marcar "no disponible" oculta el producto de la tienda y el buscador de ecofarma.co (la URL directa sigue funcionando), sin importar su stock.</p>
-          <p class="section-sub">Los cambios <strong>no son instantáneos</strong>: quedan en cola y el snippet de ecofarma.co los aplica en su próxima corrida (hasta 5 min). La búsqueda tampoco es en vivo: consulta la copia del catálogo que sube ese mismo snippet una vez al día.</p>
+          <p class="section-sub">Catálogo REAL de WooCommerce (~42,000 productos) -- completamente aparte del inventario de abajo. "Marcar no disponible" oculta el producto de la tienda/buscador (la URL directa sigue funcionando) <strong>y</strong> lo marca agotado, en un solo paso.</p>
+          <p class="section-sub">Los cambios <strong>no son instantáneos</strong>: quedan en cola y el snippet de ecofarma.co los aplica en su próxima corrida (hasta 5-15 min según qué tan cargado esté el cron de WordPress). Mientras esté pendiente, el botón queda deshabilitado -- no se puede volver a tocar hasta que una recarga confirme que WordPress ya lo aplicó. La búsqueda tampoco es en vivo: consulta la copia del catálogo que sube ese mismo snippet.</p>
 
           <div class="inline-form">
             <div class="field" style="flex:2;">
@@ -54,16 +54,10 @@
                       <span x-show="p.failedHidden !== undefined" class="badge badge-red" :title="p.failedHiddenError || 'Sin motivo'" x-text="`Falló: ${p.failedHidden ? 'no disponible' : 'visible'}`"></span>
                     </td>
                     <td>
-                      <div class="flex items-center gap-2" style="flex-wrap:wrap;">
-                        <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceAvailability(p)" :disabled="p._busy">
-                          <span x-show="p._busy" class="spin dark"></span>
-                          <span x-text="wooEffectiveHidden(p) ? 'Marcar disponible' : 'Marcar no disponible'"></span>
-                        </button>
-                        <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceStockStatus(p)" :disabled="p._stockBusy">
-                          <span x-show="p._stockBusy" class="spin dark"></span>
-                          <span x-text="wooEffectiveOutOfStock(p) ? 'Marcar con stock' : 'Marcar agotado'"></span>
-                        </button>
-                      </div>
+                      <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceUnavailable(p)" :disabled="p._busy || wooIsPending(p)" :title="wooIsPending(p) ? 'Esperando que WordPress confirme el cambio anterior' : ''">
+                        <span x-show="p._busy" class="spin dark"></span>
+                        <span x-text="wooIsPending(p) ? 'Pendiente...' : (wooEffectiveUnavailable(p) ? 'Marcar disponible' : 'Marcar no disponible')"></span>
+                      </button>
                     </td>
                   </tr>
                 </template>
@@ -103,16 +97,10 @@
                     </td>
                     <td x-text="formatDateTime(p.syncedAt)"></td>
                     <td>
-                      <div class="flex items-center gap-2" style="flex-wrap:wrap;">
-                        <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceAvailability(p)" :disabled="p._busy">
-                          <span x-show="p._busy" class="spin dark"></span>
-                          <span x-text="wooEffectiveHidden(p) ? 'Marcar disponible' : 'Marcar no disponible'"></span>
-                        </button>
-                        <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceStockStatus(p)" :disabled="p._stockBusy">
-                          <span x-show="p._stockBusy" class="spin dark"></span>
-                          <span x-text="wooEffectiveOutOfStock(p) ? 'Marcar con stock' : 'Marcar agotado'"></span>
-                        </button>
-                      </div>
+                      <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceUnavailable(p)" :disabled="p._busy || wooIsPending(p)" :title="wooIsPending(p) ? 'Esperando que WordPress confirme el cambio anterior' : ''">
+                        <span x-show="p._busy" class="spin dark"></span>
+                        <span x-text="wooIsPending(p) ? 'Pendiente...' : (wooEffectiveUnavailable(p) ? 'Marcar disponible' : 'Marcar no disponible')"></span>
+                      </button>
                     </td>
                   </tr>
                 </template>

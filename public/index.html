@@ -1214,15 +1214,33 @@ function app() {
     },
 
     // Estado que el admin ve como "actual": si hay un cambio en cola, ese es
-    // el que cuenta para el botón (si no, tocar dos veces volvería a encolar
-    // lo mismo en vez de deshacerlo). catalogVisibility/stockStatus siguen
-    // siendo el estado REAL en WooCommerce y se muestran aparte.
+    // el que cuenta (si no, tocar dos veces volvería a encolar lo mismo en
+    // vez de deshacerlo). catalogVisibility/stockStatus siguen siendo el
+    // estado REAL en WooCommerce y se muestran aparte en sus badges.
     wooEffectiveHidden(product) {
       return product.pendingHidden !== undefined ? product.pendingHidden : product.catalogVisibility === 'hidden';
     },
 
     wooEffectiveOutOfStock(product) {
       return product.pendingOutOfStock !== undefined ? product.pendingOutOfStock : product.stockStatus === 'outofstock';
+    },
+
+    // Un solo botón cubre "no disponible" + "agotado" juntos (antes eran dos
+    // botones separados -- confuso, ver conversación 2026-08-08). "No
+    // disponible" si CUALQUIERA de los dos está activo/pendiente, para que
+    // el botón ofrezca consistentemente "revertir todo" en un solo click.
+    wooEffectiveUnavailable(product) {
+      return this.wooEffectiveHidden(product) || this.wooEffectiveOutOfStock(product);
+    },
+
+    // Mientras haya un cambio encolado sin confirmar (WordPress todavía no
+    // corrió su próximo ciclo), el botón queda deshabilitado -- esto se
+    // recalcula desde datos del servidor en cada carga/recarga, no es un
+    // flag local, así que sobrevive a un F5 y solo se libera cuando una
+    // consulta nueva confirma que WordPress ya lo aplicó (pendingHidden/
+    // pendingOutOfStock dejan de venir en la respuesta).
+    wooIsPending(product) {
+      return product.pendingHidden !== undefined || product.pendingOutOfStock !== undefined;
     },
 
     // La respuesta OMITE estos campos cuando no aplican, y Object.assign no
@@ -1234,38 +1252,29 @@ function app() {
       }
     },
 
-    async toggleWoocommerceAvailability(product) {
+    // Encola AMBOS cambios (visibilidad + stock) juntos con un solo click.
+    // Se disparan en paralelo -- son dos filas independientes en
+    // WoocommercePendingChange, WordPress las aplica cada una por su lado.
+    async toggleWoocommerceUnavailable(product) {
       product._busy = true;
       try {
-        const hidden = !this.wooEffectiveHidden(product);
-        const r = await this.patch(`/inventory/woocommerce/products/${product.id}/availability`, { hidden });
-        if (r.ok) {
-          const updated = await r.json();
-          this.wooResetChangeFlags(product, updated);
-          Object.assign(product, updated);
-          this.showToast(hidden ? 'Cambio encolado: quedará no disponible en unos minutos' : 'Cambio encolado: quedará disponible en unos minutos');
+        const marcarNoDisponible = !this.wooEffectiveUnavailable(product);
+        const [rHidden, rStock] = await Promise.all([
+          this.patch(`/inventory/woocommerce/products/${product.id}/availability`, { hidden: marcarNoDisponible }),
+          this.patch(`/inventory/woocommerce/products/${product.id}/stock-status`, { outOfStock: marcarNoDisponible }),
+        ]);
+        if (rHidden.ok && rStock.ok) {
+          const updatedHidden = await rHidden.json();
+          const updatedStock = await rStock.json();
+          this.wooResetChangeFlags(product, { ...updatedHidden, ...updatedStock });
+          Object.assign(product, updatedHidden, updatedStock);
+          this.showToast(marcarNoDisponible ? 'Cambio encolado: quedará no disponible y agotado en unos minutos' : 'Cambio encolado: quedará disponible y con stock en unos minutos');
         } else {
-          const b = await r.json().catch(() => ({}));
+          const bad = !rHidden.ok ? rHidden : rStock;
+          const b = await bad.json().catch(() => ({}));
           this.showToast(b?.message || 'No se pudo encolar el cambio', 'error');
         }
       } finally { product._busy = false; }
-    },
-
-    async toggleWoocommerceStockStatus(product) {
-      product._stockBusy = true;
-      try {
-        const outOfStock = !this.wooEffectiveOutOfStock(product);
-        const r = await this.patch(`/inventory/woocommerce/products/${product.id}/stock-status`, { outOfStock });
-        if (r.ok) {
-          const updated = await r.json();
-          this.wooResetChangeFlags(product, updated);
-          Object.assign(product, updated);
-          this.showToast(outOfStock ? 'Cambio encolado: quedará agotado en unos minutos' : 'Cambio encolado: quedará con stock en unos minutos');
-        } else {
-          const b = await r.json().catch(() => ({}));
-          this.showToast(b?.message || 'No se pudo encolar el cambio', 'error');
-        }
-      } finally { product._stockBusy = false; }
     },
 
     async loadInventoryProducts() {
