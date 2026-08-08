@@ -1185,7 +1185,7 @@ function app() {
       this.wooUnavailableLoading = true;
       try {
         const r = await this.get('/inventory/woocommerce/unavailable');
-        if (r.ok) this.wooUnavailableProducts = await r.json();
+        if (r.ok) this.wooUnavailableProducts = (await r.json()).map((p) => ({ ...p, _busy: false, _stockBusy: false }));
       } catch {
       } finally { this.wooUnavailableLoading = false; }
     },
