@@ -6,3 +6,8 @@ render-backend.env
 *.log
 coverage/
 .DS_Store
+
+# Imagenes de Blog subidas desde el panel (ver src/blog/blog-image.storage.ts).
+# En produccion viven en el Render Disk montado en public/uploads, nunca en
+# git -- son datos de usuario, no codigo fuente.
+public/uploads/

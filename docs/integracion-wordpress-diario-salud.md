@@ -297,10 +297,75 @@ cosas se corrigieron:
   por sí solos.
 - Verificado end-to-end en local el 2026-08-07: crear → confirmar ausente en
   `/blog/public` → agregar sección + FAQ → publicar → confirmar presente con el contenido
-  completo → despublicar → confirmar que vuelve a desaparecer. No se corrió esta prueba
-  contra producción para no dejar un post de prueba en la base de datos real.
+  completo → despublicar → confirmar que vuelve a desaparecer.
+- Verificado también en **producción** el mismo día, de punta a punta desde el panel real
+  (`https://diario.ecofarma.co/`) hasta `https://ecofarma.co/blogs/`: post "La importancia
+  de la hidratación diaria para tu salud" (hub Vida Saludable) creado, con una sección y una
+  FAQ, publicado, y confirmado visible tanto en la tarjeta del listado como en el detalle
+  (`?post_blog=<uuid>`), con la miga de pan Artículos↔Blogs funcionando en ambas direcciones.
+  Dos hallazgos de esta prueba en vivo están documentados en la sección 11 (bug de UI) y la
+  sección 12 (demora esperada por cache).
 
-**Lado de WordPress:**
+### 9.2. Imagen del post (subida manual, con la misma imagen de respaldo que Artículos) — 2026-08-07
+
+`BlogPost.imageUrl` (`String?`, migración `20260807230648_add_blog_image_url`) es opcional y
+se gestiona con dos acciones dedicadas, separadas de crear/editar el post (mismo criterio
+que `published`/`publishedAt`, sección 9.1):
+
+- `POST /blog/posts/:id/image` — multipart, campo `file`. Acepta JPG/PNG/WEBP/GIF, máx 5MB
+  (`src/blog/blog-image.storage.ts`, `blogImageMulterOptions`). Si el post ya tenía una
+  imagen subida, borra el archivo viejo del disco antes de guardar el nuevo. El nombre en
+  disco siempre se genera (`randomUUID()` + extensión), nunca se usa el nombre original del
+  archivo subido.
+- `DELETE /blog/posts/:id/image` — quita la imagen (borra el archivo y pone `imageUrl` en
+  `null` en la fila).
+- **Fallback en la API pública**: `toPublicBlogPost()` en `blog.service.ts` devuelve
+  `post.imageUrl || DEFAULT_ARTICLE_IMAGE_URL` — reutiliza **la misma constante** que ya usan
+  los Artículos (`src/common/default-article-image.util.ts`, aplicada en
+  `toPublicArticle()` dentro de `articles.service.ts`), a propósito: un solo lugar para
+  cambiar la imagen de respaldo de todo el sitio. `GET /blog/public` nunca devuelve
+  `imageUrl: null`.
+- **Panel**: en el detalle del post, campo "Imagen del post" (`public/sections/blog.html`) —
+  preview + `<input type="file">` + botón "Quitar imagen". Métodos `uploadBlogImage`/
+  `removeBlogImage` en `public/index.html`, invocados desde dentro de
+  `x-for="post in blogPosts"` — usan `this._fetch(...)` directo (nunca el alias
+  `this.post(...)`, ver sección 11) y, para la subida, arman un `FormData` sin fijar
+  `Content-Type` a mano (el navegador arma el boundary multipart solo; usar
+  `this.headers()` ahí rompería la subida al forzar `application/json`).
+
+**Almacenamiento — por qué hay un Render Disk (`render.yaml`)**
+
+El backend corre en Render sin disco persistente configurado antes de esta fecha (Docker
+`runtime`, sin bloque `disk:`). El filesystem de un contenedor así es efímero: cualquier
+archivo escrito en disco (como una imagen subida) desaparece en el siguiente deploy o
+restart. Se agregó un disco (`diario-salud-blog-uploads` / `-staging`, 1GB, montado en
+`/app/public/uploads`) a **ambos** servicios (producción y staging) para que las imágenes
+sobrevivan. El resto de `public/` (panel, `assets/`) sigue viniendo de la imagen Docker vía
+`COPY . .` — el disco solo cubre `/app/public/uploads`, que `ServeStaticModule` sirve en
+`/uploads/blog/<archivo>` igual que cualquier otro estático de `public/`.
+
+⚠️ **Aplicar `render.yaml` requiere sincronizar el Blueprint en el dashboard de Render** —
+agregar un disco a un servicio existente no ocurre solo con el `git push`; hace falta que
+Render aplique el cambio de infraestructura (ver el servicio en el dashboard tras el deploy).
+
+**Lado de WordPress:** `ecofarma_render_blog_card()`/`ecofarma_render_blog_detalle()` en
+`docs/wpcode-diario-blog-shortcode.php` ya renderizan `<img>` cuando `imageUrl` viene
+presente, con el mismo patrón (`esc_url`, mismo estilo inline) que
+`wpcode-diario-salud-shortcode.php` usa para Artículos — no se creó CSS nueva, la tarjeta
+reutiliza `.ecofarma-card__img img{...}` de `ecofarma_diario_salud_css()`, compartida con
+Artículos. **Pendiente**: pegar el archivo actualizado en el snippet real de WPCode
+(`snippet_id=338447`) en producción — el cambio en el repo todavía no se llevó al sitio en
+vivo (ver sección 7 para el procedimiento seguro de pegar en el editor de WPCode).
+
+Verificado end-to-end en local el 2026-08-07: crear post → subir imagen → confirmar
+`imageUrl` real en `/blog/public` tras publicar → quitar imagen → confirmar que
+`/blog/public` vuelve a devolver `DEFAULT_ARTICLE_IMAGE_URL` → reemplazar una imagen dos
+veces seguidas y confirmar que el archivo viejo se borra del disco (no quedan huérfanos) →
+subir a un `postId` inexistente y confirmar que el archivo que multer ya había escrito a
+disco (antes de que el service pudiera validar que el post no existe) se borra igual, sin
+dejar huérfano (ver el `try/catch` en `BlogService.uploadImage`). No se probó contra
+producción ni se aplicó el Render Disk todavía.
+
 - **`snippet_id=338447`** "EcoFarma - Blog (shortcode via API)" — hermano del 338437,
   registra `[diario_blog]`. Copia fuente:
   [`docs/wpcode-diario-blog-shortcode.php`](wpcode-diario-blog-shortcode.php).
@@ -348,3 +413,108 @@ ser las correctas para la herramienta de automatización del navegador; no hací
 "corregirlas" multiplicando por el device pixel ratio. **Siempre usa
 `CodeMirror.getValue()` para verificar contenido guardado antes de sospechar de las
 coordenadas de clic.**
+
+---
+
+## 11. Lección: colisión de nombre entre un loop `x-for` y un método helper en Alpine.js
+
+Al agregar los botones "+ Agregar sección"/"+ Agregar FAQ"/"Publicar en WordPress" al panel
+(`public/sections/blog.html`), sus métodos (`addBlogSection`, `addBlogFaq`,
+`toggleBlogPublish`, en `public/index.html`) llamaban al helper genérico de POST autenticado
+del componente Alpine, `this.post(url, body)`. En producción, el clic en "+ Agregar sección"
+fallaba con:
+
+```
+TypeError: this.post is not a function
+```
+
+**Causa:** la fila de la tabla donde vive el botón está dentro de
+`<template x-for="post in blogPosts" :key="post.id">`. Alpine expone `post` como variable
+mágica de ámbito local dentro de ese `x-for` — y esa variable de ámbito **tapa** (shadowing)
+cualquier propiedad/método del componente que se llame igual, incluido el método helper
+`post(url, body)`. Dentro de una expresión evaluada en ese ámbito (incluyendo el cuerpo de un
+método invocado desde ahí, como `addBlogSection(post)`), `this.post` deja de resolver al
+helper HTTP y resuelve al ítem del loop — de ahí el `TypeError`.
+
+Pistas que confirmaron el diagnóstico en su momento:
+- `createBlogPost()` (invocado FUERA del `x-for`, desde el formulario "+ Nuevo post" al nivel
+  superior de la sección) funcionaba bien usando `this.post(...)`.
+- `saveBlogSection`/`saveBlogFaq` (preexistentes, invocados DESDE DENTRO del mismo `x-for`,
+  pero usando `this.patch(...)` — un nombre que no colisiona) también funcionaban bien.
+- Solo los métodos nuevos que combinaban "invocado desde dentro de `x-for="post in ..."`" +
+  "llama a `this.post(...)`" fallaban.
+
+**Solución aplicada:** en cualquier método invocado desde dentro de ese `x-for`, evitar el
+alias `this.post(...)` y llamar directo al helper de más bajo nivel que no colisiona:
+
+```js
+const r = await this._fetch(url, { method: 'POST', headers: this.headers(), body: JSON.stringify(body) });
+```
+
+**Regla general:** antes de agregar un método que se invoque desde dentro de un
+`x-for="X in algo"`, revisa si `X` coincide con el nombre de algún método/propiedad del
+componente Alpine que ese método necesite usar. Un `x-for="product in products"` que llame a
+`this.get`/`this.patch`/`this.delete` es seguro (no hay colisión de nombre); un
+`x-for="post in ..."` que llame a `this.post` no lo es. Cuando haya duda, usa el helper de
+más bajo nivel (`this._fetch`) en vez del alias corto, o renombra la variable de loop para
+que no coincida con ningún método del componente.
+
+---
+
+## 12. Lecciones de la prueba en vivo del flujo de publicación de Blog (2026-08-07)
+
+### 12.1 Un atributo `disabled` de Alpine puede quedar "pegado" en el DOM, incluso tras un reload
+
+Al probar el botón "Publicar en WordPress" en producción, los clics no producían ningún
+efecto: sin error en consola, sin petición de red (confirmado revisando
+`performance.getEntriesByType('resource')` y el listado de requests — cero peticiones a
+`.../publish` en ningún momento). Un recargue completo de la página (`F5`, confirmado como
+recarga real vía `performance.getEntriesByType('navigation')[0].type === 'reload'`) y volver
+a abrir el mismo post **no resolvió el problema** — el botón seguía sin reaccionar al clic.
+
+Inspeccionando el elemento directamente:
+
+```js
+const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes('Publicar en WordPress'));
+b.disabled       // true
+b.hasAttribute('disabled')   // true — atributo HTML real, no solo la propiedad
+```
+
+pero el objeto reactivo real detrás del binding (`post._publishBusy`, obtenido con
+`window.Alpine.$data(b).post`) ni siquiera tenía esa clave definida (`undefined`, no
+`false`). Es decir: el atributo `disabled="disabled"` estaba presente en el DOM sin que la
+expresión `:disabled="post._publishBusy"` que se supone lo controla evaluara a un valor
+verdadero — una desincronización entre el binding de Alpine y el atributo real del elemento,
+sobreviviendo incluso a un reload completo de la página (posiblemente el navegador
+restaurando el estado del formulario/DOM desde el historial en vez de un parseo 100% desde
+cero — no se confirmó la causa raíz exacta).
+
+**Cómo se destrabó para poder seguir la prueba:**
+```js
+document.querySelector('button')... .removeAttribute('disabled')
+```
+tras lo cual el clic normal en el botón sí disparó `toggleBlogPublish` correctamente.
+
+**Qué hacer si se repite:** no asumas que un botón "sin reacción" es un bug de lógica de
+negocio antes de revisar `elemento.hasAttribute('disabled')` directamente — un `:disabled`
+de Alpine puede quedar pegado por una desincronización de reactividad ajena al código de
+`toggleBlogPublish`/`addBlogSection`/etc. en sí. Si vuelve a pasar en varios botones o de
+forma reproducible (no solo una vez en una sesión de prueba larga con muchos reloads), vale
+la pena investigar si es un bug real de la versión de Alpine usada o de cómo se estructuran
+los `x-if`/`x-for` anidados en `blog.html`, en vez de solo destrabarlo a mano cada vez.
+
+### 12.2 Publicar un post no lo muestra de inmediato en `/blogs/` — cache de 5 minutos
+
+Justo después de publicar, `https://ecofarma.co/blogs/` seguía mostrando "No hay contenido
+de blog disponible en este momento." **Esto no es un bug** — `ecofarma_api_get()` (compartida
+entre los snippets 338437/338447, ver sección 2) cachea la respuesta de `GET /blog/public`
+en un `transient` de WordPress por 5 minutos (`set_transient($cache_key, $data, 5 *
+MINUTE_IN_SECONDS)`), y la página ya se había visitado (y cacheado como "sin resultados")
+antes de que el post existiera. Confirmar directo contra la API (`curl` con el
+`PUBLIC_API_KEY` real, sección 3) mostró el post ya presente y publicado — bastó esperar a
+que el transient expirara para que `/blogs/` lo reflejara. **Al probar una publicación nueva,
+espera hasta 5 minutos (o usa la API directo para confirmar) antes de concluir que la
+publicación falló.** Nota aparte: WP Fastest Cache (visible en la barra de admin) NO es la
+causa aquí — tiene activada la opción de no cachear para usuarios conectados, así que un
+admin logueado ya ve HTML fresco; el cuello de botella es el transient propio del snippet,
+independiente de ese plugin.

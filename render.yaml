@@ -57,6 +57,17 @@ services:
     plan: starter
     region: virginia
     healthCheckPath: /health
+    # Imagenes de Blog subidas a mano desde el panel (POST /blog/posts/:id/
+    # image, ver src/blog/blog-image.storage.ts) se guardan en disco bajo
+    # este mount. Sin un Render Disk, el filesystem del contenedor es
+    # efimero -- cualquier imagen subida se perderia en el siguiente deploy
+    # o restart. El resto de public/ (panel, assets estaticos) sigue
+    # viniendo de la imagen Docker via COPY, este disco solo cubre
+    # /public/uploads.
+    disk:
+      name: diario-salud-blog-uploads
+      mountPath: /app/public/uploads
+      sizeGB: 1
     # Migra el schema y corre el seed (idempotente, usa upsert) antes de
     # que el nuevo deploy reciba trafico -- si falla, Render mantiene la
     # version anterior corriendo.
@@ -130,6 +141,10 @@ services:
     plan: starter
     region: virginia
     healthCheckPath: /health
+    disk:
+      name: diario-salud-blog-uploads-staging
+      mountPath: /app/public/uploads
+      sizeGB: 1
     preDeployCommand: npx prisma migrate deploy && node dist/prisma/seed.js
     envVars:
       - key: DATABASE_URL

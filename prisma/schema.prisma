@@ -483,6 +483,13 @@ model BlogPost {
   published   Boolean   @default(false)
   publishedAt DateTime?
 
+  // Subida manual desde el panel (POST/DELETE .../image) -- URL absoluta a
+  // un archivo en disco (ver BlogService.uploadImage). NULL hasta que
+  // alguien sube una imagen; la API publica sustituye por
+  // DEFAULT_ARTICLE_IMAGE_URL en ese caso (misma imagen de respaldo que
+  // usan los Articulos), ver BlogService.toPublicBlogPost.
+  imageUrl String?
+
   sections BlogPostSection[]
   faqs     BlogFaq[]
 

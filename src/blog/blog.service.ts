@@ -1,7 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { existsSync, unlinkSync } from 'fs';
+import { join } from 'path';
 import { BlogFaq, BlogPost, BlogPostSection } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_ARTICLE_IMAGE_URL } from '../common/default-article-image.util';
+import { BLOG_IMAGE_UPLOAD_DIR, blogImagePublicUrl } from './blog-image.storage';
 import { QueryBlogPostsDto } from './dto/query-blog-posts.dto';
 import { QueryPublicBlogPostsDto } from './dto/query-public-blog-posts.dto';
 import { UpdateBlogPostDto } from './dto/update-blog-post.dto';
@@ -26,6 +30,7 @@ export interface PublicBlogPost {
   tagsSecondary: string[];
   sections: { order: number; heading: string; body: string | null }[];
   faqs: { question: string; answer: string | null }[];
+  imageUrl: string;
   publishedAt: Date | null;
   updatedAt: Date;
 }
@@ -166,6 +171,49 @@ export class BlogService {
     });
   }
 
+  /// `file.filename`/`file.path` ya vienen resueltos por el diskStorage de
+  /// multer (ver blog-image.storage.ts) para cuando este metodo corre --
+  /// aqui solo se arma la URL publica y se reemplaza la fila. Si el post
+  /// ya tenia una imagen subida previamente, se borra el archivo viejo del
+  /// disco para no acumular huerfanos.
+  ///
+  /// OJO: multer ya escribio `file` en disco ANTES de que este metodo
+  /// corra (es parte del interceptor, no de la logica de negocio) -- si
+  /// `findOnePost` lanza 404 (postId invalido), ese archivo recien escrito
+  /// quedaria huerfano si no se borra explicitamente en el catch.
+  async uploadImage(postId: string, file: { filename: string }) {
+    let post: Awaited<ReturnType<typeof this.findOnePost>>;
+    try {
+      post = await this.findOnePost(postId);
+    } catch (err) {
+      this.deleteImageFileIfOwned(blogImagePublicUrl(file.filename));
+      throw err;
+    }
+    this.deleteImageFileIfOwned(post.imageUrl);
+    const imageUrl = blogImagePublicUrl(file.filename);
+    return this.prisma.blogPost.update({ where: { id: postId }, data: { imageUrl } });
+  }
+
+  async removeImage(postId: string) {
+    const post = await this.findOnePost(postId);
+    this.deleteImageFileIfOwned(post.imageUrl);
+    return this.prisma.blogPost.update({ where: { id: postId }, data: { imageUrl: null } });
+  }
+
+  /// Solo borra archivos que vivan en nuestra propia carpeta de subidas --
+  /// `imageUrl` es un campo de texto libre en el modelo, asi que en teoria
+  /// podria apuntar a otra cosa (edicion manual en DB, import futuro,
+  /// etc.); jamas intentar unlink() sobre una URL externa.
+  private deleteImageFileIfOwned(imageUrl: string | null) {
+    if (!imageUrl) return;
+    const filename = imageUrl.split('/').pop();
+    if (!filename) return;
+    const filePath = join(BLOG_IMAGE_UPLOAD_DIR, filename);
+    if (filePath.startsWith(BLOG_IMAGE_UPLOAD_DIR) && existsSync(filePath)) {
+      unlinkSync(filePath);
+    }
+  }
+
   /// Listado paginado de la API publica -- solo posts publicados a mano
   /// desde el panel (ver publishPost). Sin esto, cualquier post recien
   /// creado o a medio redactar apareceria en WordPress de inmediato.
@@ -234,6 +282,7 @@ export class BlogService {
       tagsSecondary: post.tagsSecondary,
       sections: post.sections.map((s) => ({ order: s.order, heading: s.heading, body: s.body })),
       faqs: post.faqs.map((f) => ({ question: f.question, answer: f.answer })),
+      imageUrl: post.imageUrl || DEFAULT_ARTICLE_IMAGE_URL,
       publishedAt: post.publishedAt,
       updatedAt: post.updatedAt,
     };

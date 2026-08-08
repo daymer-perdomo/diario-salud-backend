@@ -145,6 +145,9 @@ function ecofarma_render_blog_detalle($post) {
         $html .= '<span class="ecofarma-blog-tag">' . esc_html($post['tagPrincipal']) . '</span>';
     }
     $html .= '<h1>' . esc_html($post['title']) . '</h1>';
+    if (!empty($post['imageUrl'])) {
+        $html .= '<img src="' . esc_url($post['imageUrl']) . '" alt="" style="max-width:100%;height:auto;border-radius:8px;margin:12px 0;" />';
+    }
     if (!empty($post['sections'])) {
         foreach ($post['sections'] as $section) {
             if (!empty($section['heading'])) {
@@ -183,7 +186,11 @@ function ecofarma_render_blog_card($post, $page_url) {
         $excerpt = wp_trim_words(wp_strip_all_tags($post['sections'][0]['body']), 24, '...');
     }
     $html = '<a class="ecofarma-card" href="' . esc_url($detalle_url) . '">';
-    $html .= '<div class="ecofarma-card__img ecofarma-card__img--placeholder"></div>';
+    if (!empty($post['imageUrl'])) {
+        $html .= '<div class="ecofarma-card__img"><img src="' . esc_url($post['imageUrl']) . '" alt="" loading="lazy" /></div>';
+    } else {
+        $html .= '<div class="ecofarma-card__img ecofarma-card__img--placeholder"></div>';
+    }
     $html .= '<div class="ecofarma-card__body">';
     $html .= '<span class="ecofarma-card__tag">' . esc_html($post['hub']) . '</span>';
     $html .= '<h3 class="ecofarma-card__title">' . esc_html($post['title']) . '</h3>';

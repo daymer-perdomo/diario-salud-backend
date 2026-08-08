@@ -1,10 +1,25 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { BlogService } from './blog.service';
+import { blogImageMulterOptions } from './blog-image.storage';
 import { QueryBlogPostsDto } from './dto/query-blog-posts.dto';
 import { UpdateBlogPostDto } from './dto/update-blog-post.dto';
 import { UpdateBlogSectionDto } from './dto/update-blog-section.dto';
@@ -116,5 +131,27 @@ export class BlogController {
   @Roles(UserRole.ADMIN, UserRole.EDITOR)
   unpublishPost(@Param('id') id: string) {
     return this.blogService.unpublishPost(id);
+  }
+
+  @Post('posts/:id/image')
+  @ApiOperation({
+    summary: 'Subir/reemplazar la imagen del post (JPG/PNG/WEBP/GIF, max 5MB). Si nunca se sube una, la API publica usa la misma imagen de respaldo que los Articulos.',
+  })
+  @ApiParam({ name: 'id' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  @UseInterceptors(FileInterceptor('file', blogImageMulterOptions))
+  uploadImage(@Param('id') id: string, @UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('Falta el archivo de imagen (campo "file")');
+    return this.blogService.uploadImage(id, file);
+  }
+
+  @Delete('posts/:id/image')
+  @ApiOperation({ summary: 'Quitar la imagen del post (vuelve a la imagen de respaldo en la API publica)' })
+  @ApiParam({ name: 'id' })
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  removeImage(@Param('id') id: string) {
+    return this.blogService.removeImage(id);
   }
 }

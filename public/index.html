@@ -1112,6 +1112,48 @@ function app() {
       } finally { post._publishBusy = false; }
     },
 
+    // Invocados desde dentro de x-for="post in blogPosts" -- usan
+    // this._fetch directo, nunca this.post(...) (colisiona con la
+    // variable de loop "post", ver docs/integracion-wordpress-diario-salud.md
+    // seccion 11). FormData: sin Content-Type manual, el navegador arma el
+    // boundary multipart solo -- por eso no se usa this.headers() aqui.
+    async uploadBlogImage(post, event) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (!file) return;
+      post._imageBusy = true;
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const r = await this._fetch(`/blog/posts/${post.id}/image`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.jwtToken}` },
+          body: formData,
+        });
+        if (r.ok) {
+          const updated = await r.json();
+          post.imageUrl = updated.imageUrl;
+          this.showToast('Imagen subida');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo subir la imagen', 'error');
+        }
+      } finally { post._imageBusy = false; }
+    },
+    async removeBlogImage(post) {
+      post._imageBusy = true;
+      try {
+        const r = await this._fetch(`/blog/posts/${post.id}/image`, { method: 'DELETE', headers: this.headers() });
+        if (r.ok) {
+          post.imageUrl = null;
+          this.showToast('Imagen eliminada');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo quitar la imagen', 'error');
+        }
+      } finally { post._imageBusy = false; }
+    },
+
     // ── Inventario (alimenta al chatbot publico) ────────────────────────
     async loadInventoryBranches() {
       try {
