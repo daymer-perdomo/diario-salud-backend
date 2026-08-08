@@ -7,10 +7,15 @@
             <svg class="chevron" :class="{ open: invWooOpen }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
             <span class="card-title">Disponibilidad en WordPress</span>
           </div>
+          <button class="btn btn-secondary btn-sm" @click.stop="loadUnavailableWoocommerceProducts()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Actualizar
+          </button>
         </div>
-        <div x-show="invWooOpen">
-          <p class="section-sub" style="padding:0 16px 8px;">Catálogo REAL de WooCommerce (~42,000 productos) -- completamente aparte del inventario de abajo. Marcar "no disponible" oculta el producto de la tienda y el buscador de ecofarma.co (la URL directa sigue funcionando), sin importar su stock.</p>
-          <p class="section-sub" style="padding:0 16px 8px;">Los cambios <strong>no son instantáneos</strong>: quedan en cola y el plugin de ecofarma.co los aplica en su próxima corrida (unos minutos). Mientras eso pasa se muestran con la etiqueta "Pendiente". La búsqueda tampoco es en vivo: consulta la copia del catálogo que sube ese mismo plugin.</p>
+        <div x-show="invWooOpen" style="padding:0 16px 16px;">
+          <p class="section-sub">Catálogo REAL de WooCommerce (~42,000 productos) -- completamente aparte del inventario de abajo. Marcar "no disponible" oculta el producto de la tienda y el buscador de ecofarma.co (la URL directa sigue funcionando), sin importar su stock.</p>
+          <p class="section-sub">Los cambios <strong>no son instantáneos</strong>: quedan en cola y el snippet de ecofarma.co los aplica en su próxima corrida (hasta 5 min). La búsqueda tampoco es en vivo: consulta la copia del catálogo que sube ese mismo snippet una vez al día.</p>
+
           <div class="inline-form">
             <div class="field" style="flex:2;">
               <label class="label">Buscar en WooCommerce (nombre, SKU o EAN)</label>
@@ -25,39 +30,28 @@
           <div x-show="wooSearchBusy" class="loader"><span class="spin dark"></span></div>
 
           <div x-show="!wooSearchBusy && wooSearchDone && !wooSearchResults.length" class="empty">
-            <p>Sin resultados en WooCommerce para esa búsqueda</p>
+            <p>Sin resultados en la copia local del catálogo para esa búsqueda</p>
           </div>
 
-          <div x-show="!wooSearchBusy && wooSearchResults.length" class="table-scroll" style="padding:0 16px 16px;">
+          <div x-show="!wooSearchBusy && wooSearchResults.length" class="table-scroll" style="padding-bottom:8px;">
             <table class="table">
               <thead>
-                <tr>
-                  <th>SKU</th>
-                  <th>Nombre</th>
-                  <th>Stock</th>
-                  <th>Catálogo</th>
-                  <th></th>
-                </tr>
+                <tr><th>SKU</th><th>Nombre</th><th>Stock</th><th>Catálogo</th><th></th></tr>
               </thead>
               <tbody>
                 <template x-for="p in wooSearchResults" :key="p.id">
                   <tr>
                     <td class="text-mono" x-text="p.sku"></td>
-                    <td style="max-width:280px;"><a :href="p.permalink" target="_blank" rel="noopener" x-text="p.name"></a></td>
+                    <td style="max-width:240px;"><a :href="p.permalink" target="_blank" rel="noopener" x-text="p.name"></a></td>
                     <td>
-                      <span class="badge" :class="p.stockStatus === 'instock' ? 'badge-green' : 'badge-gray'" x-text="p.stockStatus === 'instock' ? 'Con stock' : 'Agotado'"></span>
-                      <span x-show="!p.manageStock" class="badge badge-amber" title="Este producto ya no rastrea cantidad real en WooCommerce -- alguien lo marcó manualmente desde acá">Manual</span>
-                      <!-- El estado de arriba es el REAL en WooCommerce; esto es lo que
-                           todavía no se aplicó, para no mentir diciendo que ya cambió. -->
-                      <span x-show="p.pendingOutOfStock !== undefined" class="badge badge-amber" :title="`Pendiente de aplicar en ecofarma.co: ${p.pendingOutOfStock ? 'agotado' : 'con stock'}`" x-text="`Pendiente: ${p.pendingOutOfStock ? 'agotado' : 'con stock'}`"></span>
-                      <!-- Un fallo no se reintenta solo: se muestra acá con su motivo
-                           para que se pueda volver a intentar a mano. -->
-                      <span x-show="p.failedOutOfStock !== undefined" class="badge badge-red" :title="p.failedOutOfStockError || 'El sitio no reportó el motivo'" x-text="`Falló: ${p.failedOutOfStock ? 'agotado' : 'con stock'}`"></span>
+                      <span class="badge" :class="p.stockStatus === 'instock' ? 'badge-green' : 'badge-amber'" x-text="p.stockStatus === 'instock' ? 'Con stock' : 'Agotado'"></span>
+                      <span x-show="p.pendingOutOfStock !== undefined" class="badge badge-amber" x-text="`Pendiente: ${p.pendingOutOfStock ? 'agotado' : 'con stock'}`"></span>
+                      <span x-show="p.failedOutOfStock !== undefined" class="badge badge-red" :title="p.failedOutOfStockError || 'Sin motivo'" x-text="`Falló: ${p.failedOutOfStock ? 'agotado' : 'con stock'}`"></span>
                     </td>
                     <td>
                       <span class="badge" :class="p.catalogVisibility === 'hidden' ? 'badge-amber' : 'badge-green'" x-text="p.catalogVisibility === 'hidden' ? 'No disponible' : 'Visible'"></span>
-                      <span x-show="p.pendingHidden !== undefined" class="badge badge-amber" :title="`Pendiente de aplicar en ecofarma.co: ${p.pendingHidden ? 'no disponible' : 'visible'}`" x-text="`Pendiente: ${p.pendingHidden ? 'no disponible' : 'visible'}`"></span>
-                      <span x-show="p.failedHidden !== undefined" class="badge badge-red" :title="p.failedHiddenError || 'El sitio no reportó el motivo'" x-text="`Falló: ${p.failedHidden ? 'no disponible' : 'visible'}`"></span>
+                      <span x-show="p.pendingHidden !== undefined" class="badge badge-amber" x-text="`Pendiente: ${p.pendingHidden ? 'no disponible' : 'visible'}`"></span>
+                      <span x-show="p.failedHidden !== undefined" class="badge badge-red" :title="p.failedHiddenError || 'Sin motivo'" x-text="`Falló: ${p.failedHidden ? 'no disponible' : 'visible'}`"></span>
                     </td>
                     <td>
                       <div class="flex items-center gap-2" style="flex-wrap:wrap;">
@@ -77,48 +71,84 @@
             </table>
           </div>
 
-          <div style="padding:16px 16px 0;border-top:1px solid var(--line);margin-top:4px;">
-            <div class="flex items-center gap-2" style="justify-content:space-between;">
-              <span class="card-title" style="font-size:13px;" x-text="`Marcados como no disponibles (${wooHiddenProducts.length})`"></span>
-            </div>
-            <p class="section-sub" style="padding:4px 0 8px;">Registro propio de este dashboard -- WooCommerce no permite filtrar productos por visibilidad, así que esta lista es la única forma de encontrar después lo que ya se ocultó.</p>
+          <div style="padding-top:8px;border-top:1px solid var(--line);margin-top:8px;">
+            <p class="section-sub" style="padding-top:8px;">Lo que WordPress reportó como agotado/oculto en su última corrida (cada 15 min) -- refleja el estado REAL en WooCommerce ahora mismo, se haya marcado desde acá o directo en WordPress.</p>
           </div>
 
-          <div x-show="wooHiddenLoading" class="loader"><span class="spin dark"></span></div>
+          <div x-show="wooUnavailableLoading" class="loader"><span class="spin dark"></span></div>
 
-          <div x-show="!wooHiddenLoading && !wooHiddenProducts.length" class="empty" style="padding-bottom:16px;">
-            <p>Ningún producto marcado como no disponible todavía</p>
+          <div x-show="!wooUnavailableLoading && !wooUnavailableProducts.length" class="empty">
+            <p>Nada reportado como agotado/oculto todavía -- o el reporte de WordPress no ha corrido aún.</p>
           </div>
 
-          <div x-show="!wooHiddenLoading && wooHiddenProducts.length" class="table-scroll" style="padding:0 16px 16px;">
+          <div x-show="!wooUnavailableLoading && wooUnavailableProducts.length" class="table-scroll" style="padding-top:8px;">
             <table class="table">
               <thead>
-                <tr>
-                  <th>SKU</th>
-                  <th>Nombre</th>
-                  <th>Marcado</th>
-                  <th></th>
-                </tr>
+                <tr><th>SKU</th><th>Nombre</th><th>Stock</th><th>Catálogo</th><th>Reportado</th></tr>
               </thead>
               <tbody>
-                <template x-for="p in wooHiddenProducts" :key="p.id">
+                <template x-for="p in wooUnavailableProducts" :key="p.id">
                   <tr>
                     <td class="text-mono" x-text="p.sku"></td>
-                    <td style="max-width:320px;" x-text="p.name"></td>
-                    <td x-text="formatDateTime(p.hiddenAt)"></td>
+                    <td style="max-width:280px;"><a :href="p.permalink" target="_blank" rel="noopener" x-text="p.name"></a></td>
+                    <td><span class="badge" :class="p.stockStatus === 'outofstock' ? 'badge-amber' : 'badge-green'" x-text="p.stockStatus === 'outofstock' ? 'Agotado' : 'Con stock'"></span></td>
+                    <td><span class="badge" :class="p.catalogVisibility !== 'visible' ? 'badge-amber' : 'badge-green'" x-text="p.catalogVisibility !== 'visible' ? 'Oculto' : 'Visible'"></span></td>
+                    <td x-text="formatDateTime(p.syncedAt)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header" style="cursor:pointer;" @click="invBlacklistOpen = !invBlacklistOpen">
+          <div class="flex items-center gap-2">
+            <svg class="chevron" :class="{ open: invBlacklistOpen }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            <span class="card-title">Lista Negra</span>
+          </div>
+        </div>
+        <div x-show="invBlacklistOpen">
+          <p class="section-sub" style="padding:0 16px 8px;">Registro de referencia de qué productos <strong>deben</strong> estar bloqueados en la tienda (agregado a mano en WordPress, ver tarjeta de arriba) -- esto NO los bloquea automáticamente, es solo para que el equipo audite y detecte si una sincronización con el proveedor reactivó alguno por error.</p>
+          <div class="inline-form">
+            <div class="field">
+              <label class="label">SKU</label>
+              <input type="text" class="input" x-model="newBlacklistSku" placeholder="7702870002636" />
+            </div>
+            <div class="field" style="flex:2;">
+              <label class="label">Nombre del producto</label>
+              <input type="text" class="input" x-model="newBlacklistName" placeholder="NOFERTYL 50 MG/5 MG" />
+            </div>
+            <div class="field" style="flex:2;">
+              <label class="label">Motivo</label>
+              <input type="text" class="input" x-model="newBlacklistReason" placeholder="Retirado por el proveedor" />
+            </div>
+            <button class="btn btn-primary btn-sm" @click="createBlacklistEntry()" :disabled="newBlacklistBusy || !newBlacklistSku.trim() || !newBlacklistName.trim() || !newBlacklistReason.trim()">
+              <span x-show="newBlacklistBusy" class="spin"></span>
+              Agregar
+            </button>
+          </div>
+          <div class="table-scroll" style="padding:0 16px 16px;">
+            <table class="table" x-show="blacklistEntries.length">
+              <thead>
+                <tr><th>SKU</th><th>Nombre</th><th>Motivo</th><th>Agregado</th><th></th></tr>
+              </thead>
+              <tbody>
+                <template x-for="entry in blacklistEntries" :key="entry.id">
+                  <tr>
+                    <td class="text-mono" x-text="entry.sku"></td>
+                    <td x-text="entry.name"></td>
+                    <td x-text="entry.reason"></td>
+                    <td x-text="formatDateTime(entry.createdAt)"></td>
                     <td>
-                      <div class="flex items-center gap-2" style="flex-wrap:wrap;">
-                        <button class="btn btn-secondary btn-sm" @click="toggleWoocommerceAvailability(p)" :disabled="p._busy">
-                          <span x-show="p._busy" class="spin dark"></span>
-                          <span x-text="wooEffectiveHidden(p) ? 'Marcar disponible' : 'Marcar no disponible'"></span>
-                        </button>
-                        <span x-show="p.pendingHidden !== undefined" class="badge badge-amber" x-text="`Pendiente: ${p.pendingHidden ? 'no disponible' : 'visible'}`"></span>
-                      </div>
+                      <button class="btn btn-secondary btn-sm" @click="deleteBlacklistEntry(entry)" :disabled="entry._busy">Quitar</button>
                     </td>
                   </tr>
                 </template>
               </tbody>
             </table>
+            <p x-show="!blacklistEntries.length" class="muted">Nada en la Lista Negra todavía.</p>
           </div>
         </div>
       </div>
@@ -244,6 +274,10 @@
             <svg class="chevron" :class="{ open: invProductsOpen }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
             <span class="card-title" x-text="`${inventoryMeta.total} producto${inventoryMeta.total !== 1 ? 's' : ''}`"></span>
           </div>
+          <button class="btn btn-secondary btn-sm" @click.stop="showAddProductForm = !showAddProductForm; invProductsOpen = true">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Agregar producto
+          </button>
           <button class="btn btn-secondary btn-sm" @click.stop="loadInventoryProducts()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Actualizar
@@ -251,6 +285,33 @@
         </div>
 
         <div x-show="invProductsOpen">
+          <div x-show="showAddProductForm" style="padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel-soft);">
+            <div class="inline-form">
+              <div class="field">
+                <label class="label">SKU</label>
+                <input type="text" class="input" x-model="newProductSku" placeholder="7702870002636" />
+              </div>
+              <div class="field" style="flex:2;">
+                <label class="label">Nombre</label>
+                <input type="text" class="input" x-model="newProductName" placeholder="ACETAMINOFEN 500MG x 20 TAB" />
+              </div>
+              <div class="field">
+                <label class="label">Principio activo</label>
+                <input type="text" class="input" x-model="newProductActiveIngredient" placeholder="Acetaminofén" />
+              </div>
+              <div class="field">
+                <label class="label">Categoría</label>
+                <input type="text" class="input" x-model="newProductCategory" placeholder="Analgésicos" />
+              </div>
+            </div>
+            <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+              <label class="flex items-center gap-2"><input type="checkbox" x-model="newProductRequiresPrescription" /> Requiere receta médica</label>
+              <button class="btn btn-primary btn-sm" @click="createProduct()" :disabled="newProductBusy || !newProductSku.trim() || !newProductName.trim()">
+                <span x-show="newProductBusy" class="spin"></span>
+                Crear producto
+              </button>
+            </div>
+          </div>
           <div class="inline-form">
             <div class="field">
               <label class="label">Buscar (nombre, SKU o principio activo)</label>

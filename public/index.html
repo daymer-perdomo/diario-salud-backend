@@ -434,7 +434,7 @@
       <div class="nav-group">
         <div class="nav-title">Inventario</div>
         <nav class="tabs">
-          <button class="tab" :class="{ active: tab === 'inventario' }" @click="tab = 'inventario'; loadSection('inventario'); loadInventoryBranches(); loadInventoryProducts(); loadDistrimonacoSyncRuns(); loadSynonyms(); loadWoocommerceHiddenProducts()">
+          <button class="tab" :class="{ active: tab === 'inventario' }" @click="tab = 'inventario'; loadSection('inventario'); loadInventoryBranches(); loadInventoryProducts(); loadDistrimonacoSyncRuns(); loadSynonyms(); loadBlacklistEntries(); loadUnavailableWoocommerceProducts()">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.91 8.84L8.56 21.19a2 2 0 0 1-2.83 0L3.16 18.6a2 2 0 0 1 0-2.83L15.5 3.42"/><path d="M3.5 8.5l3-3"/><path d="M13.5 22.5a5 5 0 0 1-7-7"/></svg>
             Inventario
           </button>
@@ -589,6 +589,25 @@ function app() {
     inventoryPage: 1,
     inventoryPageSize: 20,
     inventoryMeta: { total: 0, totalPages: 1 },
+    wooUnavailableProducts: [],
+    wooUnavailableLoading: false,
+
+    // Disponibilidad en WordPress -- marcar acá encola el cambio
+    // (WoocommercePendingChange); el snippet de WordPress lo aplica en su
+    // próxima corrida (~5 min). Sin copia local del catálogo completo (se
+    // abandonó, ver docs/integracion-inventario-wordpress.md), así que la
+    // búsqueda pega en vivo a /inventory/woocommerce/products.
+    wooSearchQuery: '',
+    wooSearchResults: [],
+    wooSearchBusy: false,
+    wooSearchDone: false,
+    newProductSku: '',
+    newProductName: '',
+    newProductActiveIngredient: '',
+    newProductCategory: '',
+    newProductRequiresPrescription: false,
+    newProductBusy: false,
+    showAddProductForm: false,
     newBranchCode: '',
     newBranchName: '',
     newBranchBusy: false,
@@ -599,15 +618,14 @@ function app() {
     newSynonymRelated: '',
     newSynonymBusy: false,
 
-    // Disponibilidad en WordPress -- catalogo REAL de WooCommerce
-    // (~42,000 productos), separado del Product de este backend. No hay
-    // copia local, la busqueda siempre pega en vivo a /inventory/woocommerce/products.
-    wooSearchQuery: '',
-    wooSearchResults: [],
-    wooSearchBusy: false,
-    wooSearchDone: false,
-    wooHiddenProducts: [],
-    wooHiddenLoading: false,
+    // Lista Negra -- registro de referencia de productos que deben estar
+    // bloqueados en WooCommerce (no aplica nada ahí, ver docs/
+    // integracion-inventario-wordpress.md seccion 0).
+    blacklistEntries: [],
+    newBlacklistSku: '',
+    newBlacklistName: '',
+    newBlacklistReason: '',
+    newBlacklistBusy: false,
 
     // Tarjetas colapsables de Inventario -- Disponibilidad en WordPress
     // abierta por defecto (pedido explicito del usuario 2026-08-02), el
@@ -615,6 +633,7 @@ function app() {
     invWooOpen: true,
     invSyncOpen: false,
     invSynonymsOpen: false,
+    invBlacklistOpen: false,
     invBranchesOpen: false,
     invProductsOpen: false,
 
@@ -1162,6 +1181,93 @@ function app() {
       } catch {}
     },
 
+    async loadUnavailableWoocommerceProducts() {
+      this.wooUnavailableLoading = true;
+      try {
+        const r = await this.get('/inventory/woocommerce/unavailable');
+        if (r.ok) this.wooUnavailableProducts = await r.json();
+      } catch {
+      } finally { this.wooUnavailableLoading = false; }
+    },
+
+    async searchWoocommerceProducts() {
+      const q = this.wooSearchQuery.trim();
+      if (q.length < 2) { this.showToast('Escribe al menos 2 caracteres', 'error'); return; }
+      this.wooSearchBusy = true;
+      this.wooSearchDone = false;
+      try {
+        const r = await this.get(`/inventory/woocommerce/products?q=${encodeURIComponent(q)}`);
+        if (r.ok) {
+          this.wooSearchResults = (await r.json()).map((p) => ({ ...p, _busy: false, _stockBusy: false }));
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message || 'No se pudo buscar en WooCommerce', 'error');
+          this.wooSearchResults = [];
+        }
+      } catch {
+        this.showToast('No se pudo conectar con el backend', 'error');
+        this.wooSearchResults = [];
+      } finally {
+        this.wooSearchBusy = false;
+        this.wooSearchDone = true;
+      }
+    },
+
+    // Estado que el admin ve como "actual": si hay un cambio en cola, ese es
+    // el que cuenta para el botón (si no, tocar dos veces volvería a encolar
+    // lo mismo en vez de deshacerlo). catalogVisibility/stockStatus siguen
+    // siendo el estado REAL en WooCommerce y se muestran aparte.
+    wooEffectiveHidden(product) {
+      return product.pendingHidden !== undefined ? product.pendingHidden : product.catalogVisibility === 'hidden';
+    },
+
+    wooEffectiveOutOfStock(product) {
+      return product.pendingOutOfStock !== undefined ? product.pendingOutOfStock : product.stockStatus === 'outofstock';
+    },
+
+    // La respuesta OMITE estos campos cuando no aplican, y Object.assign no
+    // borra lo que no viene -- sin esto un "Falló" viejo quedaría pegado en
+    // pantalla después de reintentar.
+    wooResetChangeFlags(product, updated) {
+      for (const k of ['pendingHidden', 'pendingOutOfStock', 'failedHidden', 'failedHiddenError', 'failedOutOfStock', 'failedOutOfStockError']) {
+        product[k] = updated[k];
+      }
+    },
+
+    async toggleWoocommerceAvailability(product) {
+      product._busy = true;
+      try {
+        const hidden = !this.wooEffectiveHidden(product);
+        const r = await this.patch(`/inventory/woocommerce/products/${product.id}/availability`, { hidden });
+        if (r.ok) {
+          const updated = await r.json();
+          this.wooResetChangeFlags(product, updated);
+          Object.assign(product, updated);
+          this.showToast(hidden ? 'Cambio encolado: quedará no disponible en unos minutos' : 'Cambio encolado: quedará disponible en unos minutos');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message || 'No se pudo encolar el cambio', 'error');
+        }
+      } finally { product._busy = false; }
+    },
+
+    async toggleWoocommerceStockStatus(product) {
+      product._stockBusy = true;
+      try {
+        const outOfStock = !this.wooEffectiveOutOfStock(product);
+        const r = await this.patch(`/inventory/woocommerce/products/${product.id}/stock-status`, { outOfStock });
+        if (r.ok) {
+          const updated = await r.json();
+          this.wooResetChangeFlags(product, updated);
+          Object.assign(product, updated);
+          this.showToast(outOfStock ? 'Cambio encolado: quedará agotado en unos minutos' : 'Cambio encolado: quedará con stock en unos minutos');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message || 'No se pudo encolar el cambio', 'error');
+        }
+      } finally { product._stockBusy = false; }
+    },
+
     async loadInventoryProducts() {
       this.inventoryProductsLoading = true;
       try {
@@ -1180,6 +1286,30 @@ function app() {
     goToInventoryPage(n) {
       this.inventoryPage = Math.min(Math.max(1, n), this.inventoryMeta.totalPages);
       this.loadInventoryProducts();
+    },
+
+    async createProduct() {
+      this.newProductBusy = true;
+      try {
+        const r = await this.post('/inventory/products', {
+          sku: this.newProductSku.trim(),
+          name: this.newProductName.trim(),
+          activeIngredient: this.newProductActiveIngredient.trim() || undefined,
+          category: this.newProductCategory.trim() || undefined,
+          requiresPrescription: this.newProductRequiresPrescription,
+        });
+        if (r.ok) {
+          this.newProductSku = ''; this.newProductName = ''; this.newProductActiveIngredient = '';
+          this.newProductCategory = ''; this.newProductRequiresPrescription = false;
+          this.showAddProductForm = false;
+          this.showToast('Producto creado');
+          this.inventoryPage = 1;
+          this.loadInventoryProducts();
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo crear el producto', 'error');
+        }
+      } finally { this.newProductBusy = false; }
     },
 
     // Al abrir la fila arma _stockByBranch con TODAS las sucursales (no
@@ -1481,100 +1611,43 @@ function app() {
       } finally { syn._busy = false; }
     },
 
-    async searchWoocommerceProducts() {
-      const q = this.wooSearchQuery.trim();
-      if (q.length < 2) { this.showToast('Escribe al menos 2 caracteres', 'error'); return; }
-      this.wooSearchBusy = true;
-      this.wooSearchDone = false;
+    async loadBlacklistEntries() {
       try {
-        const r = await this.get(`/inventory/woocommerce/products?q=${encodeURIComponent(q)}`);
+        const r = await this.get('/inventory/blacklist');
+        if (r.ok) this.blacklistEntries = (await r.json()).map((b) => ({ ...b, _busy: false }));
+      } catch {}
+    },
+
+    async createBlacklistEntry() {
+      this.newBlacklistBusy = true;
+      try {
+        const r = await this.post('/inventory/blacklist', {
+          sku: this.newBlacklistSku.trim(),
+          name: this.newBlacklistName.trim(),
+          reason: this.newBlacklistReason.trim(),
+        });
         if (r.ok) {
-          this.wooSearchResults = (await r.json()).map((p) => ({ ...p, _busy: false, _stockBusy: false }));
+          this.blacklistEntries.unshift({ ...(await r.json()), _busy: false });
+          this.newBlacklistSku = ''; this.newBlacklistName = ''; this.newBlacklistReason = '';
+          this.showToast('Agregado a la Lista Negra');
         } else {
           const b = await r.json().catch(() => ({}));
-          this.showToast(b?.message || 'No se pudo buscar en WooCommerce', 'error');
-          this.wooSearchResults = [];
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo agregar', 'error');
         }
-      } catch {
-        this.showToast('No se pudo conectar con WooCommerce', 'error');
-        this.wooSearchResults = [];
-      } finally {
-        this.wooSearchBusy = false;
-        this.wooSearchDone = true;
-      }
+      } finally { this.newBlacklistBusy = false; }
     },
 
-    // Estado que el admin ve como "actual": si hay un cambio en cola, ese es
-    // el que cuenta para el botón (si no, tocar dos veces volvería a encolar
-    // lo mismo en vez de deshacerlo). catalogVisibility/stockStatus siguen
-    // siendo el estado REAL en WooCommerce y se muestran aparte.
-    wooEffectiveHidden(product) {
-      return product.pendingHidden !== undefined ? product.pendingHidden : product.catalogVisibility === 'hidden';
-    },
-
-    wooEffectiveOutOfStock(product) {
-      return product.pendingOutOfStock !== undefined ? product.pendingOutOfStock : product.stockStatus === 'outofstock';
-    },
-
-    // La respuesta OMITE estos campos cuando no aplican, y Object.assign no
-    // borra lo que no viene -- sin esto un "Falló" viejo quedaría pegado en
-    // pantalla después de reintentar.
-    wooResetChangeFlags(product, updated) {
-      for (const k of ['pendingHidden', 'pendingOutOfStock', 'failedHidden', 'failedHiddenError', 'failedOutOfStock', 'failedOutOfStockError']) {
-        product[k] = updated[k];
-      }
-    },
-
-    // Cloudflare bloquea el tráfico entrante desde el backend hacia
-    // ecofarma.co, así que esto ya no escribe en WooCommerce: encola el
-    // cambio y el plugin del sitio lo aplica cuando pasa a preguntar.
-    async toggleWoocommerceAvailability(product) {
-      product._busy = true;
+    async deleteBlacklistEntry(entry) {
+      entry._busy = true;
       try {
-        const hidden = !this.wooEffectiveHidden(product);
-        const r = await this.patch(`/inventory/woocommerce/products/${product.id}/availability`, { hidden });
+        const r = await this.delete(`/inventory/blacklist/${entry.id}`);
         if (r.ok) {
-          const updated = await r.json();
-          // Asignados explícitamente porque la respuesta OMITE el campo
-          // cuando no hay nada pendiente, y Object.assign no borraría un
-          // valor viejo.
-          this.wooResetChangeFlags(product, updated);
-          Object.assign(product, updated);
-          // La lista de "no disponibles" refleja lo que está oculto DE VERDAD
-          // en WooCommerce, así que no se toca acá: se actualiza cuando el
-          // plugin confirma que aplicó el cambio.
-          this.showToast(hidden ? 'Cambio encolado: quedará no disponible en unos minutos' : 'Cambio encolado: quedará disponible en unos minutos');
+          this.blacklistEntries = this.blacklistEntries.filter((b) => b.id !== entry.id);
+          this.showToast('Quitado de la Lista Negra');
         } else {
-          const b = await r.json().catch(() => ({}));
-          this.showToast(b?.message || 'No se pudo encolar el cambio', 'error');
+          this.showToast('No se pudo quitar', 'error');
         }
-      } finally { product._busy = false; }
-    },
-
-    async loadWoocommerceHiddenProducts() {
-      this.wooHiddenLoading = true;
-      try {
-        const r = await this.get('/inventory/woocommerce/hidden-products');
-        if (r.ok) this.wooHiddenProducts = (await r.json()).map((p) => ({ ...p, _busy: false, catalogVisibility: 'hidden' }));
-      } catch {
-      } finally { this.wooHiddenLoading = false; }
-    },
-
-    async toggleWoocommerceStockStatus(product) {
-      product._stockBusy = true;
-      try {
-        const outOfStock = !this.wooEffectiveOutOfStock(product);
-        const r = await this.patch(`/inventory/woocommerce/products/${product.id}/stock-status`, { outOfStock });
-        if (r.ok) {
-          const updated = await r.json();
-          this.wooResetChangeFlags(product, updated);
-          Object.assign(product, updated);
-          this.showToast(outOfStock ? 'Cambio encolado: quedará agotado en unos minutos' : 'Cambio encolado: quedará con stock en unos minutos');
-        } else {
-          const b = await r.json().catch(() => ({}));
-          this.showToast(b?.message || 'No se pudo encolar el cambio', 'error');
-        }
-      } finally { product._stockBusy = false; }
+      } finally { entry._busy = false; }
     },
 
     async createBranch() {

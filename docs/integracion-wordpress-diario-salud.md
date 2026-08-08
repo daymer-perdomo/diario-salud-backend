@@ -503,6 +503,41 @@ forma reproducible (no solo una vez en una sesión de prueba larga con muchos re
 la pena investigar si es un bug real de la versión de Alpine usada o de cómo se estructuran
 los `x-if`/`x-for` anidados en `blog.html`, en vez de solo destrabarlo a mano cada vez.
 
+**Actualización 2026-08-08 -- se repitió, con un flag distinto:** al probar el botón "Quitar
+imagen" (`removeBlogImage`, gateado por `:disabled="post._imageBusy"` -- mismo patrón que
+`_publishBusy`) en una sesión de pruebas local nueva, el mismo síntoma reapareció desde el
+primer clic (sin reload previo de por medio esta vez): `b.hasAttribute('disabled') === true`
+mientras `Alpine.$data(root).blogPosts.find(...)._imageBusy` no existía como propiedad
+(`hasOwnProperty` devolvía `false`). Esto confirma que **no fue un incidente aislado del
+botón de publicar** -- el mismo patrón (`:disabled="post._xBusy"` dentro de
+`x-for="post in blogPosts"`) parece propenso a esta desincronización en general, no algo
+específico de `toggleBlogPublish`.
+
+Además, esta vez `removeAttribute('disabled')` **no bastó** para restaurar el clic normal --
+tras destrabar el atributo, un clic simulado (vía automatización de navegador) seguía sin
+disparar ninguna petición de red. La forma que sí funcionó para verificar que la lógica de
+negocio en sí era correcta fue invocar el método del componente directamente, saltándose el
+evento de clic por completo:
+
+```js
+const root = document.querySelector('[x-data]');
+const data = window.Alpine.$data(root);
+const post = data.blogPosts.find(p => p.id === '<id>');
+await data.removeBlogImage(post);   // o el metodo que corresponda
+```
+
+Esto SÍ actualizó el estado reactivo correctamente (toast, UI, y la llamada real a
+`DELETE /blog/posts/:id/image` confirmada contra la base de datos) -- es decir, el bug está
+aislado al *despacho del evento de clic sobre ese elemento especifico*, no a la lógica de
+`removeBlogImage`/`toggleBlogPublish` ni al binding de datos en sí. **Si un botón dentro de
+`x-for="post in blogPosts"` no reacciona ni con el atributo `disabled` removido, usar
+`Alpine.$data(root)` para invocar el método directamente es la forma más rápida de aislar si
+el problema es el manejador de clic o la lógica de negocio** -- no sigas reintentando clics a
+ciegas. Sigue sin confirmarse la causa raíz (candidatos: alguna interacción entre múltiples
+elementos `x-for` anidados con el mismo `:key`, o un problema del propio entorno de
+automatización del navegador al despachar el evento -- no se ha reproducido todavía con un
+clic real de mouse humano).
+
 ### 12.2 Publicar un post no lo muestra de inmediato en `/blogs/` — cache de 5 minutos
 
 Justo después de publicar, `https://ecofarma.co/blogs/` seguía mostrando "No hay contenido

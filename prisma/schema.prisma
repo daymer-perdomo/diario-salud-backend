@@ -744,6 +744,32 @@ model WoocommercePendingChange {
   @@map("woocommerce_pending_changes")
 }
 
+/// Lista Negra: registro de REFERENCIA de que productos deben estar
+/// bloqueados (ocultos/agotados) en la tienda WooCommerce -- ver
+/// docs/integracion-inventario-wordpress.md seccion 0. Esta tabla NO aplica
+/// nada en WooCommerce ni en WordPress: el bloqueo real se hace a mano en
+/// wp-admin (ver seccion 8 del doc). Existe porque "Estado del inventario"
+/// en WooCommerce puede revertirse solo si el producto tiene "Gestionar
+/// inventario" activado y una sincronizacion con el proveedor le actualiza
+/// la cantidad -- esta lista le da al equipo un lugar fijo para auditar
+/// periodicamente que SI sigue bloqueado en la tienda.
+model ProductBlacklist {
+  id     String @id @default(uuid())
+  sku    String
+  name   String
+  reason String
+
+  /// Quien lo agrego -- misma trazabilidad que WoocommercePendingChange.
+  /// Sin relacion formal para no bloquear el borrado de un usuario por
+  /// tener entradas historicas a su nombre.
+  addedByUserId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([sku])
+  @@map("product_blacklist")
+}
+
 /// Precio en Decimal (nunca Float) por la misma razon de siempre con
 /// dinero: evitar error de redondeo binario. Unico por (productId,
 /// branchId) -- un producto puede tener stock/precio distinto en cada

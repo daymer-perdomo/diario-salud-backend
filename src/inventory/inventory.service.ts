@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryProductsDto } from './dto/query-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -7,6 +7,8 @@ import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { CreateSynonymDto } from './dto/create-synonym.dto';
 import { UpdateSynonymDto } from './dto/update-synonym.dto';
+import { CreateBlacklistEntryDto } from './dto/create-blacklist-entry.dto';
+import { CreateProductDto } from './dto/create-product.dto';
 
 const PRODUCT_WITH_STOCK_INCLUDE = { stock: { include: { branch: true } } } as const;
 
@@ -61,6 +63,30 @@ export class InventoryService {
   /// el id interno.
   async findBySku(sku: string) {
     return this.prisma.product.findUnique({ where: { sku }, include: PRODUCT_WITH_STOCK_INCLUDE });
+  }
+
+  /// Alta manual de un producto desde el panel, entre importaciones de
+  /// Excel/sincronizaciones de Distrimonaco -- hasta ahora un producto
+  /// solo podia crearse via esos dos caminos masivos, nunca uno a uno.
+  /// sourceFile queda marcado "manual-panel" para distinguirlo en
+  /// trazabilidad, igual que Distrimonaco marca el suyo (ver
+  /// DistrimonacoSyncService.SOURCE_TAG).
+  async createProduct(dto: CreateProductDto) {
+    const existing = await this.prisma.product.findUnique({ where: { sku: dto.sku.trim() } });
+    if (existing) throw new ConflictException(`Ya existe un producto con el SKU ${dto.sku.trim()}`);
+
+    return this.prisma.product.create({
+      data: {
+        sku: dto.sku.trim(),
+        name: dto.name.trim(),
+        activeIngredient: dto.activeIngredient?.trim() || null,
+        category: dto.category?.trim() || null,
+        description: dto.description?.trim() || null,
+        requiresPrescription: dto.requiresPrescription ?? false,
+        sourceFile: 'manual-panel',
+      },
+      include: PRODUCT_WITH_STOCK_INCLUDE,
+    });
   }
 
   async updateProduct(id: string, dto: UpdateProductDto) {
@@ -130,6 +156,26 @@ export class InventoryService {
     const existing = await this.prisma.searchSynonym.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Sinónimo ${id} no encontrado`);
     await this.prisma.searchSynonym.delete({ where: { id } });
+  }
+
+  /// Lista Negra: registro de referencia de que productos deben estar
+  /// bloqueados en WooCommerce -- ver ProductBlacklist en el schema.
+  /// NO aplica nada en WooCommerce/WordPress, es solo para que el equipo
+  /// audite despues.
+  async findAllBlacklistEntries() {
+    return this.prisma.productBlacklist.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+
+  async createBlacklistEntry(dto: CreateBlacklistEntryDto, addedByUserId?: string) {
+    return this.prisma.productBlacklist.create({
+      data: { sku: dto.sku.trim(), name: dto.name.trim(), reason: dto.reason.trim(), addedByUserId },
+    });
+  }
+
+  async deleteBlacklistEntry(id: string) {
+    const existing = await this.prisma.productBlacklist.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException(`Entrada ${id} no encontrada en la Lista Negra`);
+    await this.prisma.productBlacklist.delete({ where: { id } });
   }
 
   /// Expande una busqueda por categoria/sintoma (ej. "hongos") a los

@@ -26,3 +26,19 @@ ver la sección "Cómo modificar esto en el futuro" del doc de arriba):
 - `docs/wpcode-diario-salud-shortcode.php` ([diario_salud])
 - `docs/wpcode-diario-salud-blog-insert.php` (inserción en /blog/)
 - `docs/wpcode-diario-blog-shortcode.php` ([diario_blog])
+
+## Disponibilidad de productos (WooCommerce)
+
+El panel de EcoFarma (sección Inventario → "Disponibilidad en WordPress") permite buscar un
+producto de WooCommerce y marcarlo no disponible/agotado desde ahí -- el cambio se encola
+(`WoocommercePendingChange`) y un snippet en WordPress lo aplica automáticamente en su
+próxima corrida (hasta 5 min). El panel también muestra qué está agotado/oculto en
+WooCommerce ahora mismo, reportado por ese mismo snippet cada 15 min.
+
+Van dos intentos previos que **fallaron en producción** (el snippet nunca lograba quedar
+"Activo" en WPCode, causa nunca confirmada) antes de este tercero, que usa funciones con
+nombre en vez de closures -- el mismo estilo que sí se mantiene activo en los snippets de
+Diario de la Salud/Blog. Antes de tocar esto, lee
+[`docs/integracion-inventario-wordpress.md`](docs/integracion-inventario-wordpress.md)
+completo (secciones 0, 0.1 y 8) para no repetir los mismos intentos fallidos. Snippet:
+`docs/wpcode-inventario-disponibilidad.php`.

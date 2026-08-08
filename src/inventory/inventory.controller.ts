@@ -14,6 +14,8 @@ import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { CreateSynonymDto } from './dto/create-synonym.dto';
 import { UpdateSynonymDto } from './dto/update-synonym.dto';
+import { CreateBlacklistEntryDto } from './dto/create-blacklist-entry.dto';
+import { CreateProductDto } from './dto/create-product.dto';
 import { DistrimonacoSyncService } from './distrimonaco-sync.service';
 import { WoocommerceImageSyncService } from './woocommerce-image-sync.service';
 import { WoocommerceCatalogService } from './woocommerce-catalog.service';
@@ -52,6 +54,13 @@ export class InventoryController {
   @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
   findOneProduct(@Param('id') id: string) {
     return this.inventoryService.findOneProduct(id);
+  }
+
+  @Post('products')
+  @ApiOperation({ summary: 'Crear un producto a mano (entre importaciones de Excel/Distrimonaco)' })
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  createProduct(@Body() dto: CreateProductDto) {
+    return this.inventoryService.createProduct(dto);
   }
 
   @Patch('products/:id')
@@ -154,6 +163,34 @@ export class InventoryController {
     return { deleted: true };
   }
 
+  /// Lista Negra: registro de referencia de productos que deben estar
+  /// bloqueados en la tienda WooCommerce (ver ProductBlacklist en el
+  /// schema y docs/integracion-inventario-wordpress.md seccion 0). NO
+  /// aplica nada en WordPress -- el bloqueo real se hace a mano en
+  /// wp-admin, esto es solo para que el equipo audite despues.
+  @Get('blacklist')
+  @ApiOperation({ summary: 'Listar la Lista Negra de productos' })
+  @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
+  findAllBlacklistEntries() {
+    return this.inventoryService.findAllBlacklistEntries();
+  }
+
+  @Post('blacklist')
+  @ApiOperation({ summary: 'Agregar un producto a la Lista Negra' })
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  createBlacklistEntry(@Body() dto: CreateBlacklistEntryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.inventoryService.createBlacklistEntry(dto, user.userId);
+  }
+
+  @Delete('blacklist/:id')
+  @ApiOperation({ summary: 'Quitar un producto de la Lista Negra' })
+  @ApiParam({ name: 'id' })
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  async deleteBlacklistEntry(@Param('id') id: string) {
+    await this.inventoryService.deleteBlacklistEntry(id);
+    return { deleted: true };
+  }
+
   /// Busca en la COPIA LOCAL del catalogo de WooCommerce (~42,300 productos)
   /// que sube el plugin de WordPress -- ya no es una busqueda en vivo:
   /// Cloudflare bloquea con 403 el trafico entrante desde Render, ver
@@ -163,6 +200,17 @@ export class InventoryController {
   @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
   searchWoocommerceProducts(@Query() query: SearchWoocommerceProductsDto) {
     return this.woocommerceCatalog.searchProducts(query.q);
+  }
+
+  /// Lo que WordPress reporto como agotado/oculto en su ultima corrida
+  /// (ver docs/wpcode-inventario-disponibilidad-reporte.php) -- estado
+  /// REAL en WooCommerce segun el ultimo reporte, sin importar desde
+  /// donde se haya marcado.
+  @Get('woocommerce/unavailable')
+  @ApiOperation({ summary: 'Listar lo que WordPress reporto como agotado/oculto' })
+  @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR, UserRole.VIEWER)
+  listUnavailableWoocommerceProducts() {
+    return this.woocommerceCatalog.listUnavailableProducts();
   }
 
   /// Lista lo marcado "no disponible" desde este dashboard -- WooCommerce

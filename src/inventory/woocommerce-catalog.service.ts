@@ -102,6 +102,19 @@ export class WoocommerceCatalogService {
     return this.prisma.woocommerceHiddenProduct.findMany({ orderBy: { hiddenAt: 'desc' } });
   }
 
+  /// Lo que WordPress reporto como agotado/oculto en su ultima corrida
+  /// (ver docs/wpcode-inventario-disponibilidad-reporte.php) -- a
+  /// diferencia de listHiddenProducts, esto refleja el estado REAL en
+  /// WooCommerce ahora mismo (segun el ultimo reporte), sin importar
+  /// desde donde se haya marcado (este dashboard, wp-admin directo, o
+  /// una sincronizacion con el proveedor).
+  async listUnavailableProducts() {
+    return this.prisma.woocommerceCatalogItem.findMany({
+      where: { OR: [{ stockStatus: 'outofstock' }, { catalogVisibility: { not: 'visible' } }] },
+      orderBy: { syncedAt: 'desc' },
+    });
+  }
+
   /// Encola "marcar/desmarcar como no disponible". WoocommerceHiddenProduct
   /// NO se toca aca: ese registro refleja lo que esta oculto de verdad en
   /// WooCommerce y solo se actualiza cuando el plugin confirma que aplico el

@@ -2,11 +2,91 @@
 
 **Para:** desarrollador de WordPress de ecofarma.co
 **Backend:** `https://diario.ecofarma.co`
-**Última actualización:** 2026-08-05
+**Última actualización:** 2026-08-08
 
 ---
 
-## 1. Qué hay que construir y por qué
+## 0. Estado (2026-08-08): este enfoque quedó abandonado
+
+Todo lo de abajo (endpoints `/integration/woocommerce/*`, el snippet
+`docs/wpcode-inventario-sync.php`, la sección "Disponibilidad en WordPress" que existió en
+el panel de EcoFarma) **describe un diseño que se intentó y no se terminó de poner en
+producción** -- se documenta tal cual para que quede el rastro de por qué se descartó, no
+como guía a seguir.
+
+**Qué pasó:** se escribió el snippet de WP-Cron (sección 4) y se pegó dos veces en WPCode de
+producción. Ambas veces, WordPress lo revertía solo a "Inactivo" después de guardarlo con
+"Activo" -- confirmado contra el listado real de fragmentos, no un falso negativo de la UI.
+Se descartó que fuera un bug de automatización (un snippet PHP mínimo de una sola línea sí
+se activó sin problema en el mismo sitio). La causa más probable es la protección de errores
+fatales de WordPress (desde 5.2), que pausa en silencio un snippet/plugin que causa un fatal
+error real y notifica por correo al admin -- pero no se llegó a confirmar el mensaje exacto
+porque no había acceso a los logs del hosting ni al correo de administración en ese momento.
+
+**Decisión (2026-08-08):** en vez de seguir depurando esa cadena (backend → cola → WP-Cron →
+WooCommerce), se usa lo que WooCommerce ya trae nativo: cada producto en `wp-admin` tiene sus
+propios campos **"Visibilidad en el catálogo"** (opción "Oculto") y **"Estado del
+inventario"** (opción "Agotado") -- exactamente los mismos campos (`catalog_visibility`,
+`stock_status`) que este diseño intentaba controlar por control remoto. No hace falta ningún
+código para eso; ver sección 8.
+
+**Qué se limpió como consecuencia:**
+- La sección "Disponibilidad en WordPress" del panel de EcoFarma (buscador de catálogo +
+  botones "Marcar no disponible"/"Marcar agotado") se reemplazó por una nota que enlaza a
+  este documento -- ver `public/sections/inventario.html`.
+- Los dos snippets de WPCode creados durante el intento (`snippet_id=338451` y su reemplazo)
+  se mandaron a la papelera en producción.
+
+**Qué NO se tocó** (queda como posible trabajo futuro si alguna vez hace falta de nuevo):
+`src/integration/*` (el módulo NestJS con los 3 endpoints), `src/inventory/
+woocommerce-catalog.service.ts`, y las tablas `WoocommerceCatalogItem`/
+`WoocommercePendingChange` en la base de datos. Todo eso sigue en el repo, inerte, sin nada
+que lo llame desde el panel ni desde WordPress.
+
+## 0.1 Tercer intento (2026-08-08): lectura + escritura, funciones con nombre
+
+El equipo confirmó que sí quiere ambas direcciones: marcar un producto no disponible/agotado
+**desde el panel de EcoFarma** y que WordPress lo aplique solo, y además ver reflejado en el
+panel lo que ya está marcado en WordPress. Es decir, el diseño original completo (sección 1),
+pero reescrito con el estilo que sí se mantuvo activo en este sitio (funciones con nombre +
+`function_exists()`, como los snippets de Diario de la Salud/Blog) en vez de closures sin
+nombre.
+
+Un solo snippet, tres tareas independientes (cada una su propio evento de WP-Cron, cada una
+en su propio try/catch):
+[`docs/wpcode-inventario-disponibilidad.php`](wpcode-inventario-disponibilidad.php)
+
+1. **`ecofarma_evento_reportar_disponibilidad`** (cada 15 min, solo lee) -- junta los
+   productos agotados/ocultos con funciones nativas de WooCommerce (`wc_get_products`,
+   taxonomía `product_visibility`) y los sube por `POST /integration/woocommerce/catalog`.
+2. **`ecofarma_evento_aplicar_pendientes`** (cada 5 min, **la única que escribe**) -- lee
+   `GET /integration/woocommerce/pending-changes` (lo que el admin encoló desde el panel al
+   buscar un producto y marcarlo), lo aplica local con `rest_do_request` y confirma con
+   `POST /integration/woocommerce/pending-changes/ack`.
+3. **`ecofarma_evento_subir_catalogo`** (diario, de madrugada) -- sube el catálogo completo
+   (~42,300 productos) para que el buscador del panel encuentre un producto la primera vez
+   (antes de que esté agotado/oculto, no puede aparecer en el reporte de la tarea 1).
+
+Del lado del panel se restauró el buscador + botones "Marcar no disponible"/"Marcar agotado"
+en la tarjeta "Disponibilidad en WordPress" (`public/sections/inventario.html`), que ya
+existían en el diseño original y usan los mismos endpoints `PATCH /inventory/woocommerce/
+products/:id/availability` y `.../stock-status` -- nunca se habían tocado, solo dejaron de
+tener quien aplicara lo que encolaban.
+
+**Por qué probablemente esta vez sí se mantenga activo:** los snippets de Diario de la
+Salud/Blog, que llevan semanas activos sin problema, usan exactamente este patrón (funciones
+con nombre + guards). Si aun así WPCode vuelve a revertirlo a "Inactivo", es evidencia fuerte
+de que el problema no es el estilo del código sino algo específico de registrar eventos de
+WP-Cron en este hosting/WPCode -- en ese caso, reportar a soporte de WPCode con los tres
+intentos documentados (snippet_id=338451, el descartado de solo-lectura, y este).
+
+**Estado:** probado localmente de punta a punta contra base de datos real (búsqueda → marcar
+→ queda en `WoocommercePendingChange` con estado `PENDIENTE`) -- **todavía sin pegar en
+WPCode de producción, sin `snippet_id`.**
+
+---
+
+## 1. Qué hay que construir y por qué (diseño original, no completado)
 
 El panel administrativo de EcoFarma (backend en Render) tiene una pantalla donde un
 administrador marca productos de WooCommerce como **"no disponible"** (los oculta de la tienda
@@ -252,6 +332,24 @@ cada corrida sería ruido infinito.
 
 ## 4. Implementación sugerida del plugin
 
+**Ya existe una copia fuente lista para pegar en WPCode:**
+[`docs/wpcode-inventario-sync.php`](wpcode-inventario-sync.php). Sigue las reglas de la
+sección 4.2 de abajo (cero funciones con nombre, cero `define()`, try/catch por closure de
+cron).
+
+**Estado (2026-08-08):** `INTEGRATION_API_KEY` configurada en Render y verificada contra el
+endpoint real (`GET /integration/woocommerce/pending-changes` responde `200
+{"count":0,"changes":[]}` con la clave correcta, `401` sin clave o con una incorrecta).
+Snippet pegado en WPCode de producción como **`snippet_id=338451`**, ubicación "Ejecutar en
+todas partes", **Activo**, con **"Modo de pruebas" de WPCode encendido** (solo corre para
+usuarios logueados con permisos de administrador todavía, no para el tráfico/WP-Cron real).
+Confirmado contra el listado real de fragmentos (`admin.php?page=wpcode`), no solo por la
+ausencia de un error al guardar — ver sección 10 sobre falsos negativos.
+
+**Falta:** 1) probar el ciclo completo (sección 5) con el modo de pruebas encendido, 2)
+apagar "Modo de pruebas" una vez confirmado, para que el cron corra también para visitantes
+anónimos (WP-Cron se dispara en cualquier carga de página, no solo las de un admin logueado).
+
 ### 4.1 Frecuencia
 
 | Tarea | Cada cuánto | Por qué |
@@ -401,3 +499,24 @@ Estas son decisiones tomadas a conciencia, no pendientes:
    y ocultarlo) es suficiente.
 3. **Un producto borrado en WooCommerce sigue apareciendo en el panel** hasta que se limpie.
    Si se intenta cambiarlo, el cambio queda marcado como fallido con el error real.
+
+---
+
+## 8. Cómo se hace hoy en la práctica (2026-08-08 en adelante)
+
+Sin nada del backend de EcoFarma de por medio -- directo en `ecofarma.co/wp-admin`:
+
+1. **Productos** → buscar el producto → abrir para editar.
+2. En el panel "Datos del producto":
+   - **Ocultarlo de la tienda/buscador:** pestaña **General** → **Visibilidad en el
+     catálogo** → elegir **"Oculto"**. La URL directa del producto sigue funcionando; solo
+     deja de aparecer en categorías, la tienda y el buscador de ecofarma.co.
+   - **Marcarlo agotado (que no se pueda comprar):** pestaña **Inventario** → **Estado del
+     inventario** → elegir **"Agotado"**.
+3. Guardar/Actualizar el producto. El cambio es instantáneo -- no hay cola, no hay cron, no
+   hay retraso.
+
+Estos son los mismos dos campos (`catalog_visibility` y `stock_status`) que todo el diseño
+de las secciones 1-7 intentaba controlar por control remoto desde el backend. Al hacerlo
+directo en WordPress no hace falta ninguna clave, ningún snippet, ni nada de este documento
+-- solo permisos de `wp-admin` para editar productos.
