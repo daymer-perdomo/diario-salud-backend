@@ -74,10 +74,10 @@
     .add-btn:disabled { opacity: .5; cursor: default; }
     .store-link { color: ${BRAND_BLUE}; font-size: 11px; font-weight: 600; text-decoration: underline; white-space: nowrap; margin-top: 4px; display: inline-block; }
     .row-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-    /// Carrusel horizontal SIEMPRE (sin importar cuantos resultados haya) --
-    /// pedido explicito del usuario 2026-08-09, inspirado en la referencia
-    /// del chatbot "Sommer" de Farmatodo. Reemplaza el diseno anterior
-    /// (tarjetas para 1-2, tabla para 3+).
+    /* Carrusel horizontal SIEMPRE (sin importar cuantos resultados haya) --
+       pedido explicito del usuario 2026-08-09, inspirado en la referencia
+       del chatbot "Sommer" de Farmatodo. Reemplaza el diseno anterior
+       (tarjetas para 1-2, tabla para 3+). */
     .products-carousel { align-self: stretch; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
     .product-card {
       flex: 0 0 132px; width: 132px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
