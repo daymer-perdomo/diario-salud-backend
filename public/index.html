@@ -591,6 +591,8 @@ function app() {
     inventoryMeta: { total: 0, totalPages: 1 },
     wooUnavailableProducts: [],
     wooUnavailableLoading: false,
+    wooUnavailablePage: 1,
+    wooUnavailablePageSize: 5,
 
     // Disponibilidad en WordPress -- marcar acá encola el cambio
     // (WoocommercePendingChange); el snippet de WordPress lo aplica en su
@@ -1186,8 +1188,24 @@ function app() {
       try {
         const r = await this.get('/inventory/woocommerce/unavailable');
         if (r.ok) this.wooUnavailableProducts = (await r.json()).map((p) => ({ ...p, _busy: false, _stockBusy: false }));
+        this.wooUnavailablePage = 1;
       } catch {
       } finally { this.wooUnavailableLoading = false; }
+    },
+
+    // Paginacion en el cliente (el endpoint ya trae la lista completa de
+    // una vez -- no vale la pena paginar del lado del servidor para esto).
+    wooUnavailableTotalPages() {
+      return Math.max(1, Math.ceil(this.wooUnavailableProducts.length / this.wooUnavailablePageSize));
+    },
+
+    wooUnavailablePageItems() {
+      const start = (this.wooUnavailablePage - 1) * this.wooUnavailablePageSize;
+      return this.wooUnavailableProducts.slice(start, start + this.wooUnavailablePageSize);
+    },
+
+    goToWooUnavailablePage(n) {
+      this.wooUnavailablePage = Math.min(Math.max(1, n), this.wooUnavailableTotalPages());
     },
 
     async searchWoocommerceProducts() {

@@ -81,7 +81,7 @@
                 <tr><th>SKU</th><th>Nombre</th><th>Stock</th><th>Catálogo</th><th>Reportado</th><th></th></tr>
               </thead>
               <tbody>
-                <template x-for="p in wooUnavailableProducts" :key="p.id">
+                <template x-for="p in wooUnavailablePageItems()" :key="p.id">
                   <tr>
                     <td class="text-mono" x-text="p.sku"></td>
                     <td style="max-width:240px;"><a :href="p.permalink" target="_blank" rel="noopener" x-text="p.name"></a></td>
@@ -106,6 +106,13 @@
                 </template>
               </tbody>
             </table>
+            <div x-show="wooUnavailableTotalPages() > 1" class="pagination">
+              <span class="muted" x-text="`Página ${wooUnavailablePage} de ${wooUnavailableTotalPages()} (${wooUnavailableProducts.length} en total)`"></span>
+              <div class="flex gap-2 items-center">
+                <button class="btn btn-secondary btn-sm" @click="goToWooUnavailablePage(wooUnavailablePage - 1)" :disabled="wooUnavailablePage <= 1">Anterior</button>
+                <button class="btn btn-secondary btn-sm" @click="goToWooUnavailablePage(wooUnavailablePage + 1)" :disabled="wooUnavailablePage >= wooUnavailableTotalPages()">Siguiente</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
