@@ -396,7 +396,6 @@
         return;
       }
 
-      var originalText = btn.textContent;
       btn.disabled = true;
       btn.textContent = 'Agregando...';
       var settled = false;
@@ -414,9 +413,16 @@
         if (window.jQuery) window.jQuery(document.body).off('added_to_cart', onAdded);
         btn.disabled = false;
         btn.textContent = 'Agregado al carrito ✓';
+        // Minimiza el widget despues de agregar -- pedido explicito del
+        // usuario 2026-08-09 (3ra vuelta): tras agregar, el cliente quiere
+        // ver el carrito/la tienda normal (el badge del carrito nativo, el
+        // side cart si el tema lo abre solo) en vez de quedar atrapado
+        // dentro del chat. El delay es solo para que alcance a ver el
+        // check de confirmacion antes de que el panel se cierre.
         setTimeout(function () {
-          btn.textContent = originalText;
-        }, 2500);
+          hideProductOverlay();
+          panel.classList.add('hidden');
+        }, 900);
       }
 
       var link = document.createElement('a');
