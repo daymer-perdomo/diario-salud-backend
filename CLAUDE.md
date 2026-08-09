@@ -21,6 +21,17 @@ tumbó el sitio completo, un bug de `get_permalink()` fuera del Loop, un anclaje
 y cómo verificar correctamente que un snippet de WPCode se guardó — ver sección 10, es
 fácil obtener falsos negativos) para no repetirlos.
 
+**2026-08-09, SEO de Artículos:** cada artículo publicado ahora tiene `<title>`, meta
+description y `<link rel="canonical">` propios en WordPress (antes todos compartían el
+título genérico de la página) más una URL legible (`slug`) para los que se reescriban o
+validen de aquí en adelante (los ya publicados se quedan con su `?articulo=<uuid>` de
+siempre, sin backfill a propósito). **Sección 13** del doc de arriba documenta dos lecciones
+reales necesarias para tocar esto de nuevo: Rank Math SEO (plugin activo) cortocircuita el
+mecanismo estándar de WordPress para el título (`document_title_parts` nunca se dispara —
+hay que usar los filtros propios de Rank Math), y `wp_update_post()` se come backslashes
+reales de **todo** el `post_content` si no se envuelve en `wp_slash()` primero (le pasó a
+código que ni siquiera se estaba editando esa vez).
+
 Copias fuente de los snippets de WPCode (edítalas aquí primero, luego copia a producción —
 ver la sección "Cómo modificar esto en el futuro" del doc de arriba):
 - `docs/wpcode-diario-salud-shortcode.php` ([diario_salud])

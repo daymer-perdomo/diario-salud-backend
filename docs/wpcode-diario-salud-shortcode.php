@@ -37,6 +37,20 @@
  * real, al post intruso "FDA Warns..."), no a la pagina actual. Ver
  * ecofarma_current_page_url() abajo: calcula la URL directamente desde
  * $_SERVER['REQUEST_URI'], sin depender del estado del Loop.
+ *
+ * SEO 2026-08-09: hasta esta fecha TODOS los articulos compartian el mismo <title>
+ * y meta description de WordPress (la pagina nunca tocaba wp_head ni el titulo del
+ * documento) -- Google veia el mismo titulo para los 200+ articulos. Se agrego:
+ * titulo por articulo (via 'pre_get_document_title', NO 'document_title_parts' --
+ * Rank Math SEO, activo en el sitio, cortocircuita ese ultimo antes de que se
+ * evalue siquiera; ver el comentario junto a esa funcion mas abajo), meta
+ * description (wp_head), canonical (via el filtro propio de Rank Math,
+ * 'rank_math/frontend/canonical', para no terminar con dos <link rel=canonical>),
+ * y URL legible via `slug` (en vez de solo el uuid) para articulos que pasen por
+ * reescritura/validacion desde esta fecha en adelante -- los ya publicados se
+ * quedan con su URL actual (?articulo=<uuid>), sin backfill a proposito, cero
+ * riesgo de romper un link que Google ya tenga indexado. Ver
+ * docs/integracion-wordpress-diario-salud.md para el detalle completo.
  */
 
 if (!defined('ECOFARMA_API_BASE')) {
@@ -96,6 +110,32 @@ if (!function_exists('ecofarma_current_page_url')) {
 function ecofarma_current_page_url() {
     $path_only = strtok($_SERVER['REQUEST_URI'], '?');
     return home_url($path_only);
+}
+}
+
+/**
+ * Articulo actual segun ?articulo=<uuid|slug> en la URL, o null si no hay
+ * ninguno. Cache estatica por request (no por pagina): tanto el shortcode
+ * (renderiza el detalle) como los hooks de <head> de mas abajo (titulo,
+ * meta description, canonical) necesitan el mismo dato, y sin esta cache
+ * cada uno dispararia su propia llamada HTTP -- ecofarma_api_get() ya
+ * cachea 5 min via transient, pero evitar la llamada duplicada DENTRO del
+ * mismo request es mas simple que depender de esa ventana.
+ */
+if (!function_exists('ecofarma_diario_salud_current_articulo')) {
+function ecofarma_diario_salud_current_articulo() {
+    static $cached = null;
+    static $fetched = false;
+    if ($fetched) {
+        return $cached;
+    }
+    $fetched = true;
+    if (empty($_GET['articulo'])) {
+        return null;
+    }
+    $id = sanitize_text_field(wp_unslash($_GET['articulo']));
+    $cached = ecofarma_api_get('/articles/' . rawurlencode($id));
+    return $cached;
 }
 }
 
@@ -178,7 +218,11 @@ function ecofarma_render_articulo_detalle($articulo) {
  */
 if (!function_exists('ecofarma_render_articulo_card')) {
 function ecofarma_render_articulo_card($articulo, $page_url) {
-    $detalle_url = add_query_arg('articulo', $articulo['id'], $page_url);
+    // slug (URL legible) si el articulo lo tiene -- solo los que pasaron por
+    // reescritura/validacion desde 2026-08-09 en adelante; los mas viejos
+    // caen a su id de siempre (ver header del archivo, seccion SEO).
+    $slug_o_id = !empty($articulo['slug']) ? $articulo['slug'] : $articulo['id'];
+    $detalle_url = add_query_arg('articulo', $slug_o_id, $page_url);
     $html = '<a class="ecofarma-card" href="' . esc_url($detalle_url) . '">';
     if (!empty($articulo['imageUrl'])) {
         $html .= '<div class="ecofarma-card__img"><img src="' . esc_url($articulo['imageUrl']) . '" alt="" loading="lazy" /></div>';
@@ -234,8 +278,7 @@ function ecofarma_diario_salud_shortcode($atts) {
     $breadcrumb = ecofarma_breadcrumb_css() . ecofarma_breadcrumb_nav('articulos');
 
     if (!empty($_GET['articulo'])) {
-        $id = sanitize_text_field(wp_unslash($_GET['articulo']));
-        $articulo = ecofarma_api_get('/articles/' . rawurlencode($id));
+        $articulo = ecofarma_diario_salud_current_articulo();
         if (!$articulo) {
             return $breadcrumb . '<p>No se pudo cargar este art&iacute;culo en este momento. Intenta de nuevo m&aacute;s tarde.</p>';
         }
@@ -275,4 +318,75 @@ function ecofarma_diario_salud_shortcode($atts) {
 
 if (!shortcode_exists('diario_salud')) {
     add_shortcode('diario_salud', 'ecofarma_diario_salud_shortcode');
+}
+
+/**
+ * Titulo por articulo (SEO 2026-08-09, ver header del archivo).
+ *
+ * IMPORTANTE (aprendido en vivo): 'document_title_parts' NUNCA se dispara
+ * en este sitio -- Rank Math SEO (activo) hookea 'pre_get_document_title'
+ * (prioridad 15), y ese filtro CORTOCIRCUITA wp_get_document_title() antes
+ * de que document_title_parts se evalue siquiera (confirmado con un
+ * transient de diagnostico: nunca se poblaba en una peticion real). Por eso
+ * enganchamos el MISMO filtro que usa Rank Math ('pre_get_document_title'),
+ * en una prioridad mas alta (20) para que la nuestra gane cuando hay un
+ * articulo actual. pre_get_document_title espera el TITULO COMPLETO ya
+ * armado (no partes por separado como document_title_parts), por eso se le
+ * agrega el nombre del sitio a mano, igual que hace Rank Math.
+ */
+if (!function_exists('ecofarma_diario_salud_pre_get_document_title')) {
+function ecofarma_diario_salud_pre_get_document_title($title) {
+    $articulo = ecofarma_diario_salud_current_articulo();
+    if ($articulo && !empty($articulo['title'])) {
+        return $articulo['title'] . ' - ' . get_bloginfo('name');
+    }
+    return $title;
+}
+}
+if (!has_filter('pre_get_document_title', 'ecofarma_diario_salud_pre_get_document_title')) {
+    add_filter('pre_get_document_title', 'ecofarma_diario_salud_pre_get_document_title', 20);
+}
+
+/**
+ * Canonical por articulo -- mismo aprendizaje que el titulo: Rank Math
+ * imprime SU PROPIO <link rel="canonical"> (generico, sin el query string)
+ * via el filtro 'rank_math/frontend/canonical'. Enganchar ESE filtro (en vez
+ * de imprimir nuestro propio <link> en wp_head) es lo que evita terminar con
+ * DOS etiquetas canonical en la pagina -- eso paso en el primer intento, y
+ * Google puede ignorar ambas si hay mas de una.
+ */
+if (!function_exists('ecofarma_diario_salud_rank_math_canonical')) {
+function ecofarma_diario_salud_rank_math_canonical($canonical) {
+    if (empty($_GET['articulo'])) {
+        return $canonical;
+    }
+    $id = sanitize_text_field(wp_unslash($_GET['articulo']));
+    return add_query_arg('articulo', $id, ecofarma_current_page_url());
+}
+}
+if (!has_filter('rank_math/frontend/canonical', 'ecofarma_diario_salud_rank_math_canonical')) {
+    add_filter('rank_math/frontend/canonical', 'ecofarma_diario_salud_rank_math_canonical', 20);
+}
+
+/**
+ * Meta description por articulo -- esta SI funciona via wp_head normal (Rank
+ * Math no tiene una description propia configurada para esta pagina generica,
+ * asi que no hay conflicto/duplicado). Si metadesc empieza a fallar algun dia,
+ * revisar el filtro 'rank_math/frontend/description' igual que se hizo con
+ * canonical arriba.
+ */
+if (!function_exists('ecofarma_diario_salud_head_tags')) {
+function ecofarma_diario_salud_head_tags() {
+    $articulo = ecofarma_diario_salud_current_articulo();
+    if (!$articulo) {
+        return;
+    }
+    $descripcion = !empty($articulo['metaDescription']) ? $articulo['metaDescription'] : $articulo['summary'];
+    if (!empty($descripcion)) {
+        echo '<meta name="description" content="' . esc_attr($descripcion) . '" />' . "\n";
+    }
+}
+}
+if (!has_action('wp_head', 'ecofarma_diario_salud_head_tags')) {
+    add_action('wp_head', 'ecofarma_diario_salud_head_tags');
 }

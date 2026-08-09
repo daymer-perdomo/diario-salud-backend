@@ -553,3 +553,103 @@ publicación falló.** Nota aparte: WP Fastest Cache (visible en la barra de adm
 causa aquí — tiene activada la opción de no cachear para usuarios conectados, así que un
 admin logueado ya ve HTML fresco; el cuello de botella es el transient propio del snippet,
 independiente de ese plugin.
+
+## 13. SEO de Artículos (2026-08-09): título/meta description por artículo, canonical, slug
+
+**Contexto.** Hasta esta fecha, el shortcode `[diario_salud]` nunca tocaba `wp_head` ni el
+título del documento — WordPress mostraba el mismo `<title>` y la misma meta description
+para los 200+ artículos, sin importar cuál se abriera (`?articulo=<uuid>`). La URL tampoco
+tenía `<link rel="canonical">`, así que las distintas variantes de query string sobre la
+misma página eran un riesgo real de contenido duplicado para Google.
+
+**Alcance, a propósito acotado:** título + meta description + canonical por artículo, y URL
+legible (`slug` en vez de solo el uuid) **solo para artículos que pasen por
+reescritura/validación desde esta fecha en adelante** — los ya publicados se quedan con su
+`?articulo=<uuid>` de siempre, sin backfill, cero riesgo de invalidar un link que Google ya
+tenga indexado. Quedó fuera a propósito: permalinks reales tipo `/blog/mi-articulo/`
+(requeriría `add_rewrite_rule()` + `flush_rewrite_rules()`, mucho más riesgo en un snippet
+"Ejecutar en todas partes" de un sitio en producción), JSON-LD, autor/"revisado por", alt en
+imágenes, enlaces internos entre artículos relacionados — quedan para una vuelta futura.
+
+Backend: `Article.slug` (nullable, único), generado en `ArticleStateMachineService` cada vez
+que el título queda fijado (`markRewritten`/`validate`, siempre antes de `PUBLICADO`, nunca
+se toca un artículo ya publicado). `PublicArticle` (API pública) expone `slug` y
+`metaDescription` (esta última calculada en caliente truncando `rewrittenSummary` a ~155
+caracteres, nunca guardada). `GET /articles/:id` acepta uuid **o** slug — un solo endpoint,
+compatible con todos los links viejos.
+
+### 13.1 `document_title_parts` nunca se disparaba — Rank Math SEO lo cortocircuita
+
+El primer intento enganchó `add_filter('document_title_parts', ...)` (el mecanismo estándar
+de WordPress para el `<title>`). Se veía razonable, `php -l` pasaba, y el snippet sí
+registraba el filtro — pero el `<title>` real de la página **nunca cambiaba**, sin importar
+qué artículo se abriera.
+
+**Causa raíz (encontrada leyendo el código fuente de Rank Math SEO, plugin activo en el
+sitio, en `wp-content/plugins/seo-by-rank-math/includes/frontend/class-head.php`):** Rank
+Math hookea `pre_get_document_title` (prioridad 15). Ese filtro es evaluado por
+`wp_get_document_title()` **antes** que `document_title_parts` — si algún callback en
+`pre_get_document_title` devuelve un string no vacío (Rank Math siempre lo hace), WordPress
+usa ese valor directo y **nunca llega a evaluar `document_title_parts`**. Mismo archivo:
+Rank Math también remueve `_wp_render_title_tag` de `wp_head` y lo vuelve a enganchar a su
+propia acción interna `rank_math/head`.
+
+**Cómo se confirmó, sin adivinar:** se agregó un `set_transient(...)` de diagnóstico dentro
+del callback de `document_title_parts` y se hizo una petición real (`wp_remote_get` desde el
+propio servidor, con un parámetro cache-buster) — el transient nunca se poblaba, probando que
+el callback jamás se ejecutaba en una petición real, aunque sí lo hacía si se invocaba la
+función a mano en una sesión de PHP ya inicializada (ahí todos los hooks ya están cargados de
+formas que no reflejan el orden real de una petición fresca — **no confiar en probar hooks de
+render fuera de una petición HTTP real**).
+
+**Fix:** enganchar el `pre_get_document_title` (el mismo filtro que usa Rank Math), en
+prioridad 20 (después de la 15 de Rank Math) para que el nuestro gane. A diferencia de
+`document_title_parts` (que recibe/devuelve un array de partes), `pre_get_document_title`
+espera el **título completo ya armado** — hay que agregar el nombre del sitio a mano.
+
+Mismo patrón para el canonical: Rank Math imprime el suyo propio vía su filtro
+`rank_math/frontend/canonical` (confirmado leyendo
+`includes/frontend/paper/class-paper.php`) — enganchar *ese* filtro, no imprimir un
+`<link rel="canonical">` propio en `wp_head`, es lo que evita terminar con **dos** etiquetas
+canonical en la página (eso fue exactamente lo que pasó en el primer intento: Google puede
+ignorar ambas si hay más de una).
+
+**Lección para la próxima vez que un hook estándar de WordPress "no hace nada" con un plugin
+de SEO completo instalado (Rank Math, Yoast, All in One SEO, etc.):** ese plugin probablemente
+ya se adueñó de title/meta/canonical/OG con sus propios filtros internos. Antes de asumir que
+el snippet está mal, **leer el código fuente del plugin de SEO** (con acceso al filesystem del
+servidor, no adivinar) para encontrar el filtro específico que expone.
+
+### 13.2 `wp_update_post()` se comió backslashes reales del código — en TODO el archivo, no solo lo editado
+
+Después de aplicar el fix de la sección 13.1 (vía `str_replace()` sobre el `post_content`
+real + `wp_update_post()`, el patrón ya establecido en este documento), una verificación de
+rutina encontró que `explode("\n", ...)` (en la función de renderizado de párrafos, **nunca
+tocada** por esa edición) había quedado como `explode("n", ...)` — sin la barra invertida — y
+`date_i18n('j \d\e F \d\e Y', ...)` como `date_i18n('j de F de Y', ...)`. Sin las barras que
+escapan las letras `d`/`e` como texto literal, esas letras se interpretan como caracteres de
+formato de fecha de PHP, produciendo una fecha con basura. Ninguno de los dos son errores de
+sintaxis (`php -l` pasa igual), así que no se detectan solos.
+
+**Causa raíz:** `wp_update_post()` asume que los datos que recibe ya vienen "slasheados"
+(como si llegaran de `$_POST`) y llama internamente a `wp_unslash()` antes de guardar —
+literalmente le quita una capa de backslashes reales a **todo** el `post_content`, no solo a
+la parte que se acababa de editar. Como esto pasó en **cada** llamada a `wp_update_post()`
+sobre este snippet (ya iban 3 en esta misma sesión), el contenido se fue degradando
+progresivamente con cada edición, aunque el `str_replace()` de cada una fuera perfecto.
+
+**Fix, y regla para toda futura edición de este tipo de snippet vía `wp_update_post()`:**
+envolver el contenido en `wp_slash()` **antes** de pasarlo — así, después de que
+`wp_update_post()` le aplique su propio `wp_unslash()`, el resultado neto es el contenido
+original sin alterar:
+
+```php
+$result = wp_update_post(['ID' => $snippet_id, 'post_content' => wp_slash($content)], true);
+```
+
+**Regla para diagnosticar esto en el futuro:** si después de editar un snippet vía
+`wp_update_post()` algo con backslashes en el código (`\n`, `\t`, formatos de fecha con
+letras escapadas, regex, etc.) empieza a comportarse raro **en cualquier parte del archivo**,
+no solo en lo que se acaba de tocar — sospechar de esto primero. `php -l` no lo va a
+detectar. Verificar comparando el `post_content` real (`get_post($id)->post_content`) contra
+la copia local del repo.
