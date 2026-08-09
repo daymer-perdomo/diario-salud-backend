@@ -38,7 +38,30 @@ WooCommerce ahora mismo, reportado por ese mismo snippet cada 15 min.
 Van dos intentos previos que **fallaron en producción** (el snippet nunca lograba quedar
 "Activo" en WPCode, causa nunca confirmada) antes de este tercero, que usa funciones con
 nombre en vez de closures -- el mismo estilo que sí se mantiene activo en los snippets de
-Diario de la Salud/Blog. Antes de tocar esto, lee
+Diario de la Salud/Blog. **Este tercer intento sí quedó activo y confirmado funcionando en
+producción** (post_id=338454), validado de punta a punta con espera pasiva real (sin
+disparo manual) en ambas direcciones (marcar no disponible → se aplica solo; volver a
+disponible → también se aplica solo). Antes de tocar esto, lee
 [`docs/integracion-inventario-wordpress.md`](docs/integracion-inventario-wordpress.md)
-completo (secciones 0, 0.1 y 8) para no repetir los mismos intentos fallidos. Snippet:
+completo -- secciones 0 y 0.1 para el historial de los intentos fallidos y no repetirlos,
+**sección 9 para el estado actual en producción** (los dos bugs reales que hubo que resolver,
+qué hay activo en el panel: botón combinado, Lista Negra, creación manual de productos,
+paginación) y sección 8 como alternativa manual si el snippet alguna vez está caído. Snippet:
 `docs/wpcode-inventario-disponibilidad.php`.
+
+## Chatbot en WordPress
+
+El chatbot de inventario (`src/chatbot/`, widget en `public/widget/chatbot.js`) se embebe en
+ecofarma.co con un snippet propio (distinto de los dos de arriba) que solo imprime un
+`<script>` en el footer -- sin cron, sin lógica de negocio, el más simple y de menor riesgo
+de las tres integraciones. Además del catálogo interno (Distrimonaco), el chatbot ahora
+también consulta `WoocommerceCatalogItem` (la misma copia que alimenta la sección de
+Disponibilidad de arriba) para saber si un producto con stock físico está realmente visible/
+disponible en la tienda en línea. El modelo y la API key de Gemini (compartidos con el resto
+del pipeline de IA) son configurables desde el panel en `Chatbot` → "Configuración del modelo
+de IA" (`GET`/`PATCH /ai-settings`) en vez de fijos en variables de entorno; la personalidad/
+tono sigue siendo el prompt `CHAT_REPLY_COMPOSITION` de siempre, editable en `Guía`. Antes de
+tocar esto, lee
+[`docs/integracion-chatbot-wordpress.md`](docs/integracion-chatbot-wordpress.md) completo.
+Snippet: `docs/wpcode-chatbot-widget-embed.php` (2026-08-09: preparado, todavía sin pegar en
+WPCode de producción).

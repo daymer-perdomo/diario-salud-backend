@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LLM_SERVICE, LlmService } from '../llm/llm.service.interface';
 import { ChatIntentOutput } from '../llm/schemas/chat-intent.schema';
 import { InventoryService } from '../inventory/inventory.service';
+import { WoocommerceCatalogService } from '../inventory/woocommerce-catalog.service';
 import { checkRegexRules } from '../compliance/compliance-rules';
 import { DEFAULT_PRODUCT_IMAGE_URL } from '../common/default-product-image.util';
 
@@ -35,6 +36,14 @@ interface ProductFact {
   requiresPrescription: boolean;
   imageUrl: string | null;
   stockByBranch: Array<{ branch: string; quantity: number; price: number }>;
+  /// Estado en la tienda WooCommerce real (ecofarma.co), cruzado por SKU
+  /// contra la copia que sube el snippet de disponibilidad cada 15 min
+  /// (ver WoocommerceCatalogService.findAvailabilityBySkus). `undefined`
+  /// si ese SKU todavia no aparece en esa copia -- nunca se inventa el
+  /// dato. Puede diferir de stockByBranch: un producto con stock fisico
+  /// puede estar oculto/agotado en la tienda en linea (marcado desde el
+  /// panel o directo en WordPress) y viceversa.
+  onlineStore?: { visibleOnline: boolean; inStockOnline: boolean };
 }
 
 export interface ProductTableRow {
@@ -59,6 +68,7 @@ export class ChatbotService {
     private readonly prisma: PrismaService,
     @Inject(LLM_SERVICE) private readonly llm: LlmService,
     private readonly inventory: InventoryService,
+    private readonly woocommerce: WoocommerceCatalogService,
   ) {}
 
   async handleMessage(params: { conversationId?: string; message: string; ipHash: string }) {
@@ -141,6 +151,11 @@ export class ChatbotService {
     const { products, wasCategoryMatch } = await this.inventory.searchProducts(term, intent.isCategoryQuery ? 3 : 5);
     const branchFilter = intent.branchQuery?.trim().toLowerCase();
 
+    // Un solo lookup por lote (nunca uno por producto) contra la copia
+    // local del catalogo de WooCommerce -- ver comentario de
+    // ProductFact.onlineStore.
+    const onlineAvailability = await this.woocommerce.findAvailabilityBySkus(products.map((p) => p.sku));
+
     const products_ = await Promise.all(
       products.map(async (product) => {
         let stockRows = product.stock;
@@ -155,6 +170,7 @@ export class ChatbotService {
         const totalStock = product.stock.reduce((sum, s) => sum + s.quantity, 0);
         const needsAlternatives = intent.intent === 'ALTERNATIVES' || totalStock === 0;
         const alternatives = needsAlternatives ? await this.inventory.findAlternatives(product.id, 3) : [];
+        const online = onlineAvailability.get(product.sku);
 
         return {
           sku: product.sku,
@@ -165,6 +181,7 @@ export class ChatbotService {
           requiresPrescription: product.requiresPrescription,
           imageUrl: product.imageUrl,
           stockByBranch: stockRows.map((s) => ({ branch: s.branch.name, quantity: s.quantity, price: Number(s.price) })),
+          ...(online ? { onlineStore: { visibleOnline: online.visibleOnline, inStockOnline: online.inStockOnline } } : {}),
           alternatives: alternatives.map((a) => ({
             sku: a.sku,
             name: a.name,

@@ -10,6 +10,6 @@ import { WoocommerceCatalogService } from './woocommerce-catalog.service';
   imports: [AuthModule],
   controllers: [InventoryController],
   providers: [InventoryService, DistrimonacoSyncService, WoocommerceImageSyncService, WoocommerceCatalogService],
-  exports: [InventoryService],
+  exports: [InventoryService, WoocommerceCatalogService],
 })
 export class InventoryModule {}

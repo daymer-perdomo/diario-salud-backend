@@ -1,3 +1,49 @@
+      <p class="section-title">Chatbot</p>
+      <p class="section-sub">El widget público (embebido en ecofarma.co, ver <span class="text-mono">public/widget/chatbot.js</span>) usa el modelo y la API key configurados aquí. Sin nada configurado, usa las variables de entorno del servidor (comportamiento actual).</p>
+
+      <div class="card" style="max-width:680px;margin-bottom:20px;">
+        <div class="card-header">
+          <span class="card-title">Configuración del modelo de IA</span>
+        </div>
+        <div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label class="label">Modelo de Gemini</label>
+            <input
+              type="text"
+              class="input"
+              :placeholder="aiSettings.effectiveModel || 'gemini-3.1-flash-lite'"
+              x-model="aiSettingsModelInput"
+            />
+          </div>
+          <div>
+            <label class="label">API key de Gemini</label>
+            <input
+              type="password"
+              class="input"
+              :placeholder="aiSettings.hasApiKey ? `Configurada -- termina en ****${aiSettings.apiKeyLast4}` : 'Sin configurar -- usa la variable de entorno del servidor'"
+              x-model="aiSettingsApiKeyInput"
+              autocomplete="off"
+            />
+          </div>
+          <div class="flex gap-2 items-center" style="flex-wrap:wrap;">
+            <button
+              class="btn btn-primary btn-sm"
+              @click="saveAiSettings()"
+              :disabled="aiSettingsBusy || !(me?.role === 'ADMIN') || (!aiSettingsModelInput && !aiSettingsApiKeyInput)"
+            >
+              <span x-show="aiSettingsBusy" class="spin"></span>
+              Guardar
+            </button>
+            <span class="muted" style="font-size:var(--fs-xs);" x-show="!(me?.role === 'ADMIN')">Solo un ADMIN puede editar esto.</span>
+            <span class="muted" style="font-size:var(--fs-xs);" x-show="aiSettings.updatedAt" x-text="'Última edición: ' + formatDateTime(aiSettings.updatedAt)"></span>
+          </div>
+          <p class="muted" style="font-size:11px;margin:0;">
+            Deja un campo vacío y guarda para volver a usar el valor por defecto (variable de entorno). La personalidad/tono del chatbot no se configura aquí -- se edita en
+            <strong>Guía → Prompts y reglas de IA</strong> ("Chatbot: redacción de respuestas").
+          </p>
+        </div>
+      </div>
+
       <p class="section-title">Probar chatbot</p>
       <p class="section-sub">Esta pantalla llama al mismo endpoint público que usa el widget de WordPress (<span class="text-mono">POST /chatbot/message</span>, sin autenticación), con el mismo rate limiting -- es exactamente lo que vería un cliente final, no una vista con privilegios especiales.</p>
 

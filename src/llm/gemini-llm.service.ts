@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { LlmService } from './llm.service.interface';
 import { LlmBudgetService } from './llm-budget.service';
 import { PromptsService } from '../prompts/prompts.service';
+import { AiSettingsService } from '../ai-settings/ai-settings.service';
 import { toGeminiSchema } from './gemini-schema.util';
 import { RewriteOutput, RewriteOutputSchema, REWRITE_TOOL_JSON_SCHEMA } from './schemas/rewrite.schema';
 import {
@@ -37,12 +38,21 @@ import { ChatReplyOutput, ChatReplyOutputSchema, CHAT_REPLY_TOOL_JSON_SCHEMA } f
 @Injectable()
 export class GeminiLlmService implements LlmService {
   private readonly logger = new Logger(GeminiLlmService.name);
-  private readonly apiKey: string;
-  private readonly model: string;
+  /// Fallback si nunca se configuro nada desde el panel (o si se limpio
+  /// el override) -- ver AiSettingsService.resolveEffective, llamado en
+  /// CADA llamada a Gemini mas abajo. Ya no son el valor final: solo el
+  /// piso de la variable de entorno.
+  private readonly envApiKey: string;
+  private readonly envModel: string;
 
-  constructor(config: ConfigService, private readonly budget: LlmBudgetService, private readonly prompts: PromptsService) {
-    this.apiKey = config.get<string>('GEMINI_API_KEY')!;
-    this.model = config.get<string>('GEMINI_MODEL')!;
+  constructor(
+    config: ConfigService,
+    private readonly budget: LlmBudgetService,
+    private readonly prompts: PromptsService,
+    private readonly aiSettings: AiSettingsService,
+  ) {
+    this.envApiKey = config.get<string>('GEMINI_API_KEY')!;
+    this.envModel = config.get<string>('GEMINI_MODEL')!;
   }
 
   async scoreRelevanceAndRisk(input: {
@@ -177,6 +187,11 @@ export class GeminiLlmService implements LlmService {
   }): Promise<T> {
     const responseSchema = toGeminiSchema(params.jsonSchema);
     const contents = [{ role: 'user', parts: [{ text: params.userPrompt }] }];
+    // Resuelto una vez por llamada (no cacheado en memoria de proceso):
+    // si un ADMIN cambia el modelo o rota la key desde el panel, la
+    // SIGUIENTE llamada ya lo usa, sin reiniciar el backend -- ver
+    // AiSettingsService.resolveEffective.
+    const { apiKey, model } = await this.aiSettings.resolveEffective(this.envApiKey, this.envModel);
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       // Bloquea ANTES de gastar, no despues -- ver comentario de
@@ -185,7 +200,7 @@ export class GeminiLlmService implements LlmService {
       await this.budget.assertWithinBudget(params.stage);
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -215,7 +230,7 @@ export class GeminiLlmService implements LlmService {
       const usage = body.usageMetadata;
       await this.budget.recordUsage({
         stage: params.stage,
-        model: this.model,
+        model,
         inputTokens: usage?.promptTokenCount ?? 0,
         // thoughtsTokenCount va incluido en el precio de output de Gemini
         // (ver LlmBudgetService.priceForModel) pero NO en candidatesTokenCount

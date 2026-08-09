@@ -416,6 +416,23 @@ model PromptTemplate {
   @@map("prompt_templates")
 }
 
+/// Fila unica (singleton, sin key): modelo y API key de Gemini
+/// configurables desde el panel en vez de fijos en variables de entorno
+/// de Render. `model`/`apiKeyEncrypted` en null = usar el fallback de
+/// entorno (GEMINI_MODEL/GEMINI_API_KEY) -- asi que mientras nadie toque
+/// esto desde el panel, el comportamiento es identico al de antes. La
+/// key nunca se guarda en texto plano (ver src/common/crypto.util.ts) ni
+/// se expone completa por la API (ver AiSettingsService.getPublic).
+model AiSettings {
+  id              String   @id @default(uuid())
+  model           String?
+  apiKeyEncrypted String?
+  updatedAt       DateTime @updatedAt
+  updatedById     String?
+
+  @@map("ai_settings")
+}
+
 // =====================================================================
 // Blog general (EcoFarma) -- distinto e independiente de Diario de la
 // Salud (Article/Source arriba). Brief: MASTER_GLOBAL_BLOG_ECOFARMA.xlsx

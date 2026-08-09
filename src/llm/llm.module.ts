@@ -3,6 +3,7 @@ import { LLM_SERVICE } from './llm.service.interface';
 import { GeminiLlmService } from './gemini-llm.service';
 import { LlmBudgetService } from './llm-budget.service';
 import { PromptsModule } from '../prompts/prompts.module';
+import { AiSettingsModule } from '../ai-settings/ai-settings.module';
 
 /// Proveedor de IA intercambiable: hoy Gemini, cambiar el useClass aqui
 /// (o convertirlo en useFactory segun ConfigService) es el unico punto
@@ -21,7 +22,7 @@ import { PromptsModule } from '../prompts/prompts.module';
 /// compliance, asi que vuelve a haber un solo LLM_SERVICE para todo el
 /// pipeline.
 @Module({
-  imports: [PromptsModule],
+  imports: [PromptsModule, AiSettingsModule],
   providers: [{ provide: LLM_SERVICE, useClass: GeminiLlmService }, LlmBudgetService],
   exports: [LLM_SERVICE, LlmBudgetService],
 })

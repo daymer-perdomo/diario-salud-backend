@@ -2,10 +2,14 @@
 /**
  * EcoFarma - Disponibilidad WooCommerce (reporte + aplicar cambios + catalogo)
  *
- * WPCode snippet -- todavia NO existe en produccion (falta pegarlo en
- * https://ecofarma.co/wp-admin/admin.php?page=wpcode-snippet-manager y asignarle
- * snippet_id). Tipo: Fragmento de codigo de PHP. Ubicacion: "Ejecutar en todas partes"
- * (Auto insertar).
+ * WPCode snippet -- EN PRODUCCION desde 2026-08-08: post_id=338454, Activo, "Ejecutar en
+ * todas partes" (Auto insertar). Confirmado funcionando de punta a punta con espera
+ * pasiva real (sin disparo manual) -- ver docs/integracion-inventario-wordpress.md
+ * seccion 9 para el estado actual completo y los dos bugs que hubo que resolver para
+ * llegar aca (post_status + cache de WPCode, y el fix de wp_set_current_user() de abajo).
+ * Esta copia local sigue siendo la fuente de verdad para editar: cualquier cambio se edita
+ * aca primero, se valida con `php -l`, y despues se copia a WPCode de produccion
+ * (post_id=338454) regenerando el cache con wpcode()->cache->cache_all_loaded_snippets().
  *
  * FIX 2026-08-08 (segunda vuelta): rest_do_request() exige current_user_can(
  * 'manage_woocommerce'). El cron real del sistema (crontab -> php -q wp-cron.php) corre

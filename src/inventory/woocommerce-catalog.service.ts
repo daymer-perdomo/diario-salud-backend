@@ -95,6 +95,37 @@ export class WoocommerceCatalogService {
     return this.withPending(items);
   }
 
+  /// Cruce por SKU para el chatbot (ver ChatbotService.gatherFacts) --
+  /// distinto de searchProducts (que es para el buscador del panel): aca
+  /// se pregunta por SKUs puntuales ya encontrados en el catalogo de
+  /// Distrimonaco, para saber si ADEMAS estan visibles/con stock en la
+  /// tienda WooCommerce real. Un solo `findMany` para todo el lote (nunca
+  /// una consulta por producto). `sku` no es @unique en esta tabla (puede
+  /// venir vacio para productos sin sku en WooCommerce) -- si un mismo sku
+  /// aparece mas de una vez, se usa la fila con `syncedAt` mas reciente.
+  /// Un sku ausente del resultado (no en el Map) significa que WordPress
+  /// todavia no subio ese producto en su copia local -- el llamador no
+  /// debe inventar un estado, solo omitir el dato.
+  async findAvailabilityBySkus(
+    skus: string[],
+  ): Promise<Map<string, { visibleOnline: boolean; inStockOnline: boolean; syncedAt: Date }>> {
+    const filtered = [...new Set(skus.filter((s) => s && s.trim()))];
+    const result = new Map<string, { visibleOnline: boolean; inStockOnline: boolean; syncedAt: Date }>();
+    if (filtered.length === 0) return result;
+
+    const items = await this.prisma.woocommerceCatalogItem.findMany({ where: { sku: { in: filtered } } });
+    for (const item of items) {
+      const existing = result.get(item.sku);
+      if (existing && existing.syncedAt >= item.syncedAt) continue;
+      result.set(item.sku, {
+        visibleOnline: item.catalogVisibility === 'visible',
+        inStockOnline: item.stockStatus === 'instock',
+        syncedAt: item.syncedAt,
+      });
+    }
+    return result;
+  }
+
   /// Lista lo que se marco "no disponible" desde este dashboard, mas
   /// reciente primero -- para encontrar rapido un producto que se oculto
   /// hace dias sin tener que recordar su nombre/SKU exacto.

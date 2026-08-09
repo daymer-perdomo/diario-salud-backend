@@ -29,6 +29,7 @@ import { OrdersModule } from './orders/orders.module';
 import { UsersModule } from './users/users.module';
 import { WordpressModule } from './wordpress/wordpress.module';
 import { IntegrationModule } from './integration/integration.module';
+import { AiSettingsModule } from './ai-settings/ai-settings.module';
 
 @Module({
   imports: [
@@ -64,6 +65,8 @@ import { IntegrationModule } from './integration/integration.module';
         '/wordpress/(.*)',
         '/wordpress',
         '/integration/(.*)',
+        '/ai-settings/(.*)',
+        '/ai-settings',
       ],
       serveStaticOptions: { index: 'index.html', fallthrough: true },
     }),
@@ -98,6 +101,7 @@ import { IntegrationModule } from './integration/integration.module';
     UsersModule,
     WordpressModule,
     IntegrationModule,
+    AiSettingsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

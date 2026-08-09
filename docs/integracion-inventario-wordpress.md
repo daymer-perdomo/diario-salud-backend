@@ -80,9 +80,8 @@ de que el problema no es el estilo del código sino algo específico de registra
 WP-Cron en este hosting/WPCode -- en ese caso, reportar a soporte de WPCode con los tres
 intentos documentados (snippet_id=338451, el descartado de solo-lectura, y este).
 
-**Estado:** probado localmente de punta a punta contra base de datos real (búsqueda → marcar
-→ queda en `WoocommercePendingChange` con estado `PENDIENTE`) -- **todavía sin pegar en
-WPCode de producción, sin `snippet_id`.**
+**Estado:** ver sección 9 -- **ya está en producción, activo, y confirmado funcionando de
+punta a punta sin intervención manual** (no se quedó en "probado solo localmente").
 
 ---
 
@@ -520,3 +519,108 @@ Estos son los mismos dos campos (`catalog_visibility` y `stock_status`) que todo
 de las secciones 1-7 intentaba controlar por control remoto desde el backend. Al hacerlo
 directo en WordPress no hace falta ninguna clave, ningún snippet, ni nada de este documento
 -- solo permisos de `wp-admin` para editar productos.
+
+**Nota (2026-08-08):** esta sección queda como referencia de "cómo hacerlo a mano si el
+snippet alguna vez está caído", pero ya no es el camino principal -- ver sección 9. El
+snippet automatizado terminó funcionando y es la forma normal de operar desde el panel.
+
+---
+
+## 9. Estado actual (2026-08-08): en producción, activo, validado de punta a punta
+
+Esto reemplaza el pesimismo de las secciones 0 y 0.1 -- el tercer intento **sí funcionó**.
+Todo lo que sigue está confirmado, no es un plan.
+
+### 9.1 Qué hay activo en producción
+
+- **Snippet:** `docs/wpcode-inventario-disponibilidad.php`, pegado en WPCode como el post
+  **`post_id = 338454`** (tipo `wpcode`), ubicación "Ejecutar en todas partes", estado
+  **Activo** (`post_status = publish`), sin "Modo de pruebas". Confirmado contra el listado
+  real de fragmentos y contra `$wpdb` directo, no solo por la UI -- ver sección 10 de
+  [`docs/integracion-wordpress-diario-salud.md`](integracion-wordpress-diario-salud.md) sobre
+  por qué eso importa (es fácil obtener un falso negativo con WPCode).
+- **Cron real del hosting** (no WP-Cron pseudo-cron): `crontab` del servidor corre
+  `php -q wp-cron.php` cada 5 minutos, con `DISABLE_WP_CRON=true` en `wp-config.php`. Las
+  tres tareas del snippet (sección 0.1) se disparan desde ahí.
+- **`INTEGRATION_API_KEY`** configurada en Render y en el snippet, verificada extremo a
+  extremo (no solo con `curl` suelto).
+
+### 9.2 Los dos bugs reales que había que resolver (ya resueltos)
+
+1. **El snippet no quedaba "Activo" en WPCode.** Causa de dos partes, encontrada con acceso
+   directo a la base de datos de WordPress (vía Novamira):
+   - `post_status` del snippet tenía que ser `publish` (se puede editar directo con
+     `wp_update_post()`).
+   - Eso solo no bastaba: WPCode Pro mantiene un **índice de caché separado**
+     (`option 'wpcode_snippets'`, clase `WPCode_Snippet_Cache`) que hay que regenerar después
+     de cualquier edición del snippet a nivel de base de datos, con
+     `wpcode()->cache->cache_all_loaded_snippets()`. Sin este paso, el snippet aparecía
+     "Activo" en la UI pero WordPress seguía ejecutando la versión vieja o ninguna.
+
+2. **Los cambios se encolaban pero nunca se aplicaban en WooCommerce, sin ningún error
+   visible.** `rest_do_request()` exige `current_user_can('manage_woocommerce')` del usuario
+   *actual*. El cron real del sistema (PHP-CLI vía `crontab`) corre sin ningún usuario de
+   WordPress autenticado -- el `PUT` fallaba el chequeo de permisos en silencio (`is_error()`
+   `true`, se reportaba como `ok:false` al backend, pero nunca lanzaba una excepción que
+   quedara en `error_log`). Diagnosticado reproduciendo `rest_do_request()` a mano (con
+   usuario cargado, funcionaba) contra el disparo real por cron (fallaba). Fix: `if
+   (!get_current_user_id()) { wp_set_current_user(889); }` al inicio de
+   `ecofarma_disponibilidad_aplicar_pendientes()` (ver
+   `docs/wpcode-inventario-disponibilidad.php:203-205`).
+
+Ambos bugs quedaron **validados dos veces con espera pasiva real** (sin disparar nada a
+mano, solo esperando la corrida real del cron): un producto marcado "no disponible" desde el
+panel terminó agotado/oculto en WooCommerce solo, y luego uno marcado "disponible" de nuevo
+volvió a aparecer solo -- ambos dentro de la ventana normal de 5-15 min.
+
+### 9.3 Lo que se agregó sobre el diseño original de la sección 0.1
+
+- **Auto-sanar:** después de aplicar cada cambio pendiente, la tarea 2 vuelve a subir de
+  inmediato el estado REAL del producto tocado (no solo el que se acaba de aplicar). Esto
+  evita que un producto que vuelve a estar disponible se quede mostrado como agotado/oculto
+  en el panel hasta la próxima corrida diaria de la tarea 3 -- bug real, reportado por el
+  usuario, ver `docs/wpcode-inventario-disponibilidad.php:251-269`.
+- **Límite de tamaño del body en el backend:** la subida diaria del catálogo completo
+  (~42,300 productos, tandas de 500) superaba el límite por defecto de Express (~100kb) y
+  WordPress recibía `413`. Fix en `src/main.ts`:
+  `app.useBodyParser('json', { limit: '5mb' })` (requiere crear la app como
+  `NestExpressApplication`).
+
+### 9.4 Qué hay del lado del panel de EcoFarma (`Inventario` → "Disponibilidad en WordPress")
+
+- **Buscador** contra la copia local del catálogo (`GET /inventory/woocommerce/products?q=`).
+- **Un solo botón combinado** "Marcar no disponible" / "Marcar disponible" por producto, que
+  encola *a la vez* `catalog_visibility: hidden` y `stock_status: outofstock` (o lo inverso)
+  -- ya no son dos acciones separadas. Mientras el cambio está pendiente de que WordPress lo
+  aplique, el botón queda deshabilitado (no se puede volver a tocar hasta que una recarga
+  confirme que WordPress ya lo aplicó); el estado se deriva del backend
+  (`WoocommerceCatalogService.withPending()`), así que sobrevive a un F5.
+  Ver `wooEffectiveHidden`/`wooEffectiveOutOfStock`/`wooIsPending`/
+  `toggleWoocommerceUnavailable` en `public/index.html`.
+- **Tabla "Lo que WordPress reportó"** (`GET /inventory/woocommerce/unavailable`): lo que la
+  tarea 1 del snippet subió como agotado/oculto en su última corrida, con el mismo botón
+  combinado y el mismo estado pendiente/fallido. **Paginada a 5 ítems por página** (agregado
+  2026-08-08, ver `wooUnavailablePageItems`/`goToWooUnavailablePage` en `public/index.html`).
+- **Lista Negra** (`ProductBlacklist`, tabla `product_blacklist`): un log manual de
+  referencia -- SKU + nombre + motivo -- para que el equipo audite periódicamente qué
+  debería estar bloqueado. **No aplica nada automáticamente** en WooCommerce ni WordPress;
+  es intencional, existe como respaldo de auditoría para el riesgo residual de que
+  WooCommerce recalcule `stock_status` solo si algún día `manage_stock` queda en `true` en
+  un producto marcado agotado desde acá. Endpoints: `GET/POST/DELETE /inventory/blacklist`.
+- **Creación manual de productos** en el catálogo propio del backend (`Product`, no
+  `WoocommerceCatalogItem`): `POST /inventory/products`, valida SKU único, marca
+  `sourceFile: 'manual-panel'`. Es un catálogo aparte del de Distrimonaco -- la
+  sincronización automática con Distrimonaco nunca lo toca (upsert por SKU, sin deletes; ver
+  `src/inventory/distrimonaco-sync.service.ts`).
+
+### 9.5 Qué NO hay que repetir (evitar retrabajo)
+
+- No volver a intentar closures sin nombre en un snippet de WPCode "Ejecutar en todas
+  partes" -- confirmado que causa fatal errors no capturables (sección 4.2, incidente
+  2026-08-04). Usar siempre funciones con nombre + `function_exists()`.
+- No asumir que un snippet quedó "Activo" solo porque la UI de WPCode no mostró error al
+  guardar -- verificar `post_status` Y regenerar `wpcode_snippets` (9.2, punto 1).
+- No asumir que `count: 0` en `pending-changes` después de una corrida significa que el
+  cambio se aplicó -- puede significar que se marcó como `FALLIDO` (ack con `ok:false`). Si
+  el cron corre como PHP-CLI puro (crontab del sistema, no WP-Cron disparado por una visita),
+  verificar que haya un `wp_set_current_user()` como el de 9.2, punto 2.
