@@ -462,8 +462,21 @@ enum BlogDraftStatus {
   REDACTADO
 }
 
-/// Un BlogPost = una fila de la hoja BLOG_MASTER del Excel maestro.
-/// Los campos de reglas/guardarailes (regulatoryLevel, productPolicy,
+/// Estados del gate de revision humana antes de publicar (solo aplica a
+/// contenido tipo Blog -- ver BlogService.publishPost). PENDIENTE es el
+/// default tanto para import nuevo como para los posts legados que
+/// existian antes de este campo (backfill de la migracion).
+enum BlogReviewDecision {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+/// Un BlogPost = una fila de la hoja BLOG_MASTER del Excel maestro, o de
+/// las hojas HUBS/BLOGS/ENCICLOPEDIA de un paquete de contenido tipo
+/// ENTREGA_TABLAS_SEPARADAS (import: scripts/import-content-pack.ts) --
+/// mismo modelo para los tres, diferenciados por `contentType`. Los
+/// campos de reglas/guardarailes (regulatoryLevel, productPolicy,
 /// aiGenerationRule, notes) vienen del Excel y son de solo lectura en
 /// el panel -- el redactor los ve como guia, no los edita.
 model BlogPost {
@@ -475,6 +488,13 @@ model BlogPost {
   sourceFile      String?
   sourceRow       Int?
 
+  /// 'HUB' | 'SOUS-HUB' | 'BLOG HUB' | 'BLOG SOUS-HUB' | 'BLOG' |
+  /// 'ENCICLOPEDIA HUB' | 'ENCICLOPEDIA SOUS-HUB' | 'ENCICLOPEDIA' --
+  /// viene tal cual de type_contenu del paquete nuevo. null en los posts
+  /// importados desde el Excel maestro viejo (BLOG_MASTER no tiene esta
+  /// columna) -- se trata como 'BLOG' en el gate de revision.
+  contentType String?
+
   // --- Taxonomia (String simple, no enum -- se lee del Excel tal cual) ---
   hub    String
   subHub String?
@@ -485,6 +505,19 @@ model BlogPost {
   cluster       String?
   tagPrincipal  String?
   tagsSecondary String[] @default([])
+
+  /// Solo lo trae la hoja HUBS (intro_page_a_remplir), separado del
+  /// cuerpo por secciones -- null para Blog/Enciclopedia.
+  intro String? @db.Text
+  /// SEO -- solo lo trae el paquete nuevo, null en posts del Excel maestro.
+  metaTitle       String?
+  metaDescription String? @db.Text
+  /// Guia editorial de solo lectura (mismo espiritu que aiGenerationRule):
+  /// liens_internes_a_prevoir + articulos/fichas ligadas, concatenados.
+  internalLinksNotes String? @db.Text
+  /// sources_finales_a_citer -- referencias citadas, util para el
+  /// revisor de contenido medico/regulatorio.
+  sourcesConsultadas String? @db.Text
 
   // --- Reglas / guardarailes (solo lectura en el panel, vienen del Excel) ---
   seoPriority        String?
@@ -500,6 +533,15 @@ model BlogPost {
   reviewStatus            String          @default("À relire")
   medicalValidationStatus String          @default("À valider si requis")
   publicationStatus       String          @default("Non publié")
+
+  // --- Revision humana (gate real, solo para contenido tipo Blog -- ver
+  // BlogService.publishPost). Distinto de reviewStatus de arriba (texto
+  // libre heredado del Excel, sin semantica confiable): este es el que
+  // de verdad bloquea publicar.
+  reviewDecision   BlogReviewDecision @default(PENDIENTE)
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  reviewNotes      String?            @db.Text
 
   // --- Publicacion (gate real hacia la API publica / WordPress) ---
   // Independiente de publicationStatus (ese es texto libre heredado del
@@ -523,6 +565,7 @@ model BlogPost {
 
   @@index([hub])
   @@index([draftStatus])
+  @@index([contentType])
   @@map("blog_posts")
 }
 

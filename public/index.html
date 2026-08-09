@@ -582,6 +582,7 @@ function app() {
     blogHubs: [],
     blogHubFilter: '',
     blogDraftFilter: '',
+    blogContentTypeFilter: '',
     blogPage: 1,
     blogPageSize: 20,
     blogMeta: { total: 0, totalPages: 1 },
@@ -951,10 +952,11 @@ function app() {
         const params = new URLSearchParams({ page: this.blogPage, pageSize: this.blogPageSize });
         if (this.blogHubFilter) params.set('hub', this.blogHubFilter);
         if (this.blogDraftFilter) params.set('draftStatus', this.blogDraftFilter);
+        if (this.blogContentTypeFilter) params.set('contentType', this.blogContentTypeFilter);
         const r = await this.get(`/blog/posts?${params}`);
         if (r.ok) {
           const body = await r.json();
-          this.blogPosts = body.data.map((p) => ({ ...p, _open: false, _detailBusy: false, _saveBusy: false }));
+          this.blogPosts = body.data.map((p) => ({ ...p, _open: false, _detailBusy: false, _saveBusy: false, _reviewBusy: false, _reviewNotesDraft: p.reviewNotes || '' }));
           this.blogMeta = body.meta;
         }
       } finally { this.blogPostsLoading = false; }
@@ -980,6 +982,7 @@ function app() {
           post._editedTitle = detail.title;
           post._editedSlug = detail.slug;
           post._editedDraftStatus = detail.draftStatus;
+          post._reviewNotesDraft = detail.reviewNotes || '';
           post._loaded = true;
         } else {
           this.showToast('No se pudo cargar el post', 'error');
@@ -1043,6 +1046,41 @@ function app() {
       return { PENDIENTE_REDACCION: 'badge-gray', EN_REDACCION: 'badge-amber', REDACTADO: 'badge-green' }[status] || 'badge-gray';
     },
 
+    // El gate de revisión (bloquear "Publicar" hasta Aprobado) solo aplica
+    // a contenido tipo Blog -- Hub y Enciclopedia se publican libremente.
+    // Mismo criterio que isBlogTypeContent en blog.service.ts: contentType
+    // null son los posts legados del Excel maestro, se tratan como Blog.
+    blogIsReviewGated(post) {
+      return !post.contentType || post.contentType.startsWith('BLOG');
+    },
+    blogReviewDecisionLabel(decision) {
+      return { PENDIENTE: 'Pendiente de revisión', APROBADO: 'Aprobado', RECHAZADO: 'Rechazado' }[decision] || decision;
+    },
+    blogReviewDecisionBadge(decision) {
+      return { PENDIENTE: 'badge-gray', APROBADO: 'badge-green', RECHAZADO: 'badge-red' }[decision] || 'badge-gray';
+    },
+
+    async reviewBlogPost(post, decision) {
+      post._reviewBusy = true;
+      try {
+        const r = await this._fetch(`/blog/posts/${post.id}/review`, {
+          method: 'POST',
+          headers: this.headers(),
+          body: JSON.stringify({ decision, notes: post._reviewNotesDraft || undefined }),
+        });
+        if (r.ok) {
+          const updated = await r.json();
+          post.reviewDecision = updated.reviewDecision;
+          post.reviewNotes = updated.reviewNotes;
+          post.reviewedAt = updated.reviewedAt;
+          this.showToast(decision === 'APROBADO' ? 'Post aprobado' : 'Post rechazado');
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo guardar la revisión', 'error');
+        }
+      } finally { post._reviewBusy = false; }
+    },
+
     async createBlogPost() {
       if (!this.newBlogTitle.trim() || !this.newBlogHub.trim()) return;
       this.newBlogBusy = true;
@@ -1050,7 +1088,7 @@ function app() {
         const r = await this.post('/blog/posts', { title: this.newBlogTitle.trim(), hub: this.newBlogHub.trim() });
         if (r.ok) {
           const created = await r.json();
-          this.blogPosts.unshift({ ...created, _count: { sections: 0, faqs: 0 }, _open: false, _detailBusy: false, _saveBusy: false });
+          this.blogPosts.unshift({ ...created, _count: { sections: 0, faqs: 0 }, _open: false, _detailBusy: false, _saveBusy: false, _reviewBusy: false, _reviewNotesDraft: '' });
           this.blogMeta.total += 1;
           this.newBlogTitle = ''; this.newBlogHub = '';
           this.showToast('Post creado -- sigue sin publicar hasta que lo redactes y publiques');

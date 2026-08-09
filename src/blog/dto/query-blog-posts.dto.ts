@@ -23,4 +23,8 @@ export class QueryBlogPostsDto {
   @IsOptional()
   @IsEnum(BlogDraftStatus)
   draftStatus?: BlogDraftStatus;
+
+  @IsOptional()
+  @IsString()
+  contentType?: string;
 }

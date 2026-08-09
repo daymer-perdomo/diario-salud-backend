@@ -18,6 +18,8 @@ import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { BlogService } from './blog.service';
 import { blogImageMulterOptions } from './blog-image.storage';
 import { QueryBlogPostsDto } from './dto/query-blog-posts.dto';
@@ -27,12 +29,13 @@ import { UpdateBlogFaqDto } from './dto/update-blog-faq.dto';
 import { CreateBlogPostDto } from './dto/create-blog-post.dto';
 import { CreateBlogSectionDto } from './dto/create-blog-section.dto';
 import { CreateBlogFaqDto } from './dto/create-blog-faq.dto';
+import { CreateBlogReviewDto } from './dto/create-blog-review.dto';
 
 /// Lectura abierta a los 4 roles (igual que sources/articles) -- la
 /// escritura (redactar contenido) exige ADMIN o EDITOR. VALIDATOR se
-/// reutiliza para toda validacion (medica y farmaceutica) por ahora --
-/// ver plan: no hay todavia pantalla de validacion, asi que no tiene
-/// endpoints de escritura propios en este corte.
+/// reutiliza para toda validacion (medica y farmaceutica) -- POST
+/// posts/:id/review es su primer endpoint de escritura real en este
+/// modulo (antes solo tenia lectura, ver reviewPost en BlogService).
 @ApiTags('Blog')
 @ApiBearerAuth('jwt')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -113,6 +116,17 @@ export class BlogController {
   @Roles(UserRole.ADMIN, UserRole.EDITOR)
   addFaq(@Param('id') id: string, @Body() dto: CreateBlogFaqDto) {
     return this.blogService.addFaq(id, dto);
+  }
+
+  @Post('posts/:id/review')
+  @ApiOperation({
+    summary:
+      'Aprobar o rechazar un post en revisión. Para contenido tipo Blog, publicar exige reviewDecision=APROBADO -- ver publishPost.',
+  })
+  @ApiParam({ name: 'id' })
+  @Roles(UserRole.ADMIN, UserRole.EDITOR, UserRole.VALIDATOR)
+  reviewPost(@Param('id') id: string, @Body() dto: CreateBlogReviewDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.blogService.reviewPost(id, dto, user.userId);
   }
 
   @Post('posts/:id/publish')

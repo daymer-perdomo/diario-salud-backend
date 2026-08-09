@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { BlogFaq, BlogPost, BlogPostSection } from '@prisma/client';
+import { BlogFaq, BlogPost, BlogPostSection, BlogReviewDecision, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_ARTICLE_IMAGE_URL } from '../common/default-article-image.util';
 import { slugify } from '../common/slugify.util';
@@ -15,6 +15,30 @@ import { UpdateBlogFaqDto } from './dto/update-blog-faq.dto';
 import { CreateBlogPostDto } from './dto/create-blog-post.dto';
 import { CreateBlogSectionDto } from './dto/create-blog-section.dto';
 import { CreateBlogFaqDto } from './dto/create-blog-faq.dto';
+import { CreateBlogReviewDto } from './dto/create-blog-review.dto';
+
+/// El gate de revision (ver publishPost) y la API publica por defecto (ver
+/// findPublicPosts) solo aplican a contenido tipo Blog -- `contentType`
+/// null cubre los posts legados del Excel maestro viejo (BLOG_MASTER no
+/// tenia esta columna), que se tratan como Blog por convencion.
+function isBlogTypeContent(contentType: string | null): boolean {
+  return contentType === null || contentType.startsWith('BLOG');
+}
+
+/// Familias de alto nivel para filtrar por tipo de contenido -- 'HUB'
+/// agrupa 'HUB'/'SOUS-HUB', 'BLOG' agrupa 'BLOG'/'BLOG HUB'/'BLOG SOUS-HUB'
+/// (+ null, posts legados del Excel maestro), 'ENCICLOPEDIA' agrupa sus 3
+/// variantes. Usado tanto por el filtro del panel (findAllPosts) como por
+/// el filtro explicito de la API publica (findPublicPosts). Un valor que
+/// no calce con ninguna familia conocida se trata como el `contentType`
+/// exacto (permite filtrar granular, ej. solo 'BLOG HUB', si hiciera falta).
+function contentTypeFamilyWhere(family: string): Prisma.BlogPostWhereInput {
+  const upper = family.toUpperCase();
+  if (upper === 'HUB') return { contentType: { in: ['HUB', 'SOUS-HUB'] } };
+  if (upper === 'ENCICLOPEDIA') return { contentType: { startsWith: 'ENCICLOPEDIA' } };
+  if (upper === 'BLOG') return { OR: [{ contentType: null }, { contentType: { startsWith: 'BLOG' } }] };
+  return { contentType: family };
+}
 
 /// Forma de salida de la API publica -- deliberadamente mas angosta que el
 /// modelo Prisma: nunca expone los campos de gobernanza editorial interna
@@ -24,9 +48,12 @@ import { CreateBlogFaqDto } from './dto/create-blog-faq.dto';
 export interface PublicBlogPost {
   id: string;
   slug: string;
+  contentType: string | null;
   hub: string;
   subHub: string | null;
   title: string;
+  metaTitle: string | null;
+  metaDescription: string | null;
   tagPrincipal: string | null;
   tagsSecondary: string[];
   sections: { order: number; heading: string; body: string | null }[];
@@ -37,9 +64,10 @@ export interface PublicBlogPost {
 }
 
 /// Unico punto de escritura sobre BlogPost/BlogPostSection/BlogFaq desde
-/// la API. La importacion masiva desde el Excel maestro (scripts/import-
-/// blog-master.ts) escribe directo con Prisma, fuera de este service --
-/// es un paso manual y separado, no una ruta HTTP.
+/// la API. La importacion masiva (scripts/import-blog-master.ts para el
+/// Excel maestro, scripts/import-content-pack.ts para paquetes tipo
+/// ENTREGA_TABLAS_SEPARADAS) escribe directo con Prisma, fuera de este
+/// service -- es un paso manual y separado, no una ruta HTTP.
 @Injectable()
 export class BlogService {
   constructor(private readonly prisma: PrismaService) {}
@@ -47,9 +75,10 @@ export class BlogService {
   async findAllPosts(query: QueryBlogPostsDto) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    const where = {
+    const where: Prisma.BlogPostWhereInput = {
       ...(query.hub ? { hub: query.hub } : {}),
       ...(query.draftStatus ? { draftStatus: query.draftStatus } : {}),
+      ...(query.contentType ? contentTypeFamilyWhere(query.contentType) : {}),
     };
 
     const [data, total] = await this.prisma.$transaction([
@@ -152,12 +181,39 @@ export class BlogService {
     });
   }
 
+  /// Aprobar/rechazar un post antes de publicar -- gate real solo para
+  /// contenido tipo Blog (ver isBlogTypeContent y publishPost). Hub y
+  /// Enciclopedia tambien pueden usarlo si algun dia se decide extenderles
+  /// el gate, pero hoy no bloquea nada para ellos.
+  async reviewPost(id: string, dto: CreateBlogReviewDto, reviewedByUserId: string | null) {
+    await this.findOnePost(id);
+    return this.prisma.blogPost.update({
+      where: { id },
+      data: {
+        reviewDecision: dto.decision,
+        reviewedByUserId,
+        reviewedAt: new Date(),
+        reviewNotes: dto.notes ?? null,
+      },
+    });
+  }
+
   /// Unico camino que hace que un post aparezca en GET /blog/public (y por
   /// lo tanto en WordPress via [diario_blog]) -- ver findPublicPosts.
   /// Accion explicita y separada de crear/editar, a proposito: nada se
   /// publica solo por guardar cambios.
+  ///
+  /// Gate de revision: solo para contenido tipo Blog (ver
+  /// isBlogTypeContent) -- Hub y Enciclopedia publican libremente, sin
+  /// pasar por reviewPost. No afecta unpublishPost ni despublica nada
+  /// existente: solo intercepta la transicion false -> true.
   async publishPost(id: string) {
-    await this.findOnePost(id);
+    const post = await this.findOnePost(id);
+    if (isBlogTypeContent(post.contentType) && post.reviewDecision !== BlogReviewDecision.APROBADO) {
+      throw new BadRequestException(
+        'Este post debe estar Aprobado en revisión antes de poder publicarse.',
+      );
+    }
     return this.prisma.blogPost.update({
       where: { id },
       data: { published: true, publishedAt: new Date() },
@@ -218,12 +274,24 @@ export class BlogService {
   /// Listado paginado de la API publica -- solo posts publicados a mano
   /// desde el panel (ver publishPost). Sin esto, cualquier post recien
   /// creado o a medio redactar apareceria en WordPress de inmediato.
+  ///
+  /// Sin `contentType` en el query, se mantiene el comportamiento de
+  /// siempre (solo contenido tipo Blog / posts legados con contentType
+  /// null) -- asi [diario_blog] en WordPress sigue viendo exactamente lo
+  /// mismo que hoy. Hub/Enciclopedia solo aparecen si se piden
+  /// explicitamente via `?contentType=HUB`/`?contentType=ENCICLOPEDIA` (o
+  /// sus variantes SOUS-HUB), para no colarse por accidente en un listado
+  /// que WordPress todavia no sabe renderizar.
   async findPublicPosts(
     query: QueryPublicBlogPostsDto,
   ): Promise<{ data: PublicBlogPost[]; meta: { page: number; pageSize: number; total: number; totalPages: number } }> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    const where = { published: true, ...(query.hub ? { hub: query.hub } : {}) };
+    const where: Prisma.BlogPostWhereInput = {
+      published: true,
+      ...(query.hub ? { hub: query.hub } : {}),
+      ...contentTypeFamilyWhere(query.contentType || 'BLOG'),
+    };
 
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.blogPost.findMany({
@@ -264,9 +332,12 @@ export class BlogService {
     return {
       id: post.id,
       slug: post.slug,
+      contentType: post.contentType,
       hub: post.hub,
       subHub: post.subHub,
       title: post.title,
+      metaTitle: post.metaTitle,
+      metaDescription: post.metaDescription,
       tagPrincipal: post.tagPrincipal,
       tagsSecondary: post.tagsSecondary,
       sections: post.sections.map((s) => ({ order: s.order, heading: s.heading, body: s.body })),

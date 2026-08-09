@@ -1,5 +1,5 @@
       <p class="section-title">Blog</p>
-      <p class="section-sub">Redacción de los artículos de blog general de salud (independiente de Diario de la Salud) -- planificados en el Excel maestro o creados aquí mismo con "+ Nuevo post". Un post nunca se muestra en WordPress (ecofarma.co/blogs/) hasta que se presiona "Publicar en WordPress" en su detalle -- crear, redactar y guardar cambios no lo publica por sí solo.</p>
+      <p class="section-sub">Redacción de los artículos de blog general de salud (independiente de Diario de la Salud) -- planificados en el Excel maestro, importados de un paquete de contenido (Hub/Blog/Enciclopedia), o creados aquí mismo con "+ Nuevo post". Un post nunca se muestra en WordPress (ecofarma.co/blogs/) hasta que se presiona "Publicar en WordPress" en su detalle -- crear, redactar y guardar cambios no lo publica por sí solo. Para contenido tipo Blog, además hay que aprobarlo en Revisión antes de poder publicarlo; Hub y Enciclopedia se publican sin ese paso.</p>
 
       <div class="card">
         <div class="card-header">
@@ -51,6 +51,15 @@
               <option value="REDACTADO">Redactado</option>
             </select>
           </div>
+          <div class="field">
+            <label class="label">Tipo de contenido</label>
+            <select class="input" x-model="blogContentTypeFilter" @change="blogPage = 1; loadBlogPosts()">
+              <option value="">Todos</option>
+              <option value="BLOG">Blog</option>
+              <option value="HUB">Hub</option>
+              <option value="ENCICLOPEDIA">Enciclopedia</option>
+            </select>
+          </div>
         </div>
 
         <div x-show="blogPostsLoading" class="loader"><span class="spin dark"></span></div>
@@ -66,10 +75,12 @@
               <tr>
                 <th>Hub</th>
                 <th>Título</th>
+                <th>Tipo</th>
                 <th>Prioridad SEO</th>
                 <th>Nivel regulatorio</th>
                 <th>Secciones / FAQs</th>
                 <th>Estado de redacción</th>
+                <th>Revisión</th>
                 <th>WordPress</th>
               </tr>
             </thead>
@@ -86,15 +97,20 @@
                     </div>
                   </td>
                   <td style="max-width:280px;"><div class="truncate" :title="post.title" x-text="post.title"></div></td>
+                  <td><span class="badge badge-gray text-mono" x-text="post.contentType || 'BLOG'"></span></td>
                   <td x-text="post.seoPriority || '—'"></td>
                   <td x-text="post.regulatoryLevel || '—'"></td>
                   <td x-text="`${post._count?.sections ?? 0} H2 · ${post._count?.faqs ?? 0} FAQ`"></td>
                   <td><span class="badge" :class="blogDraftStatusBadge(post.draftStatus)" x-text="blogDraftStatusLabel(post.draftStatus)"></span></td>
+                  <td>
+                    <span x-show="blogIsReviewGated(post)" class="badge" :class="blogReviewDecisionBadge(post.reviewDecision)" x-text="blogReviewDecisionLabel(post.reviewDecision)"></span>
+                    <span x-show="!blogIsReviewGated(post)" class="muted">—</span>
+                  </td>
                   <td><span class="badge" :class="post.published ? 'badge-green' : 'badge-gray'" x-text="post.published ? 'Publicado' : 'Sin publicar'"></span></td>
                 </tr>
 
                 <tr x-show="post._open" @click.stop>
-                  <td colspan="7" style="background:var(--panel-soft);">
+                  <td colspan="9" style="background:var(--panel-soft);">
                     <div class="article-detail" style="margin-top:0;border-top:none;padding-top:4px;">
 
                       <div x-show="post._detailBusy" class="loader"><span class="spin dark"></span></div>
@@ -107,12 +123,41 @@ Cluster: <span x-text="post.cluster || '—'"></span> · Tag principal: <span x-
 Intención: <span x-text="post.intention || '—'"></span> · Política de productos: <span x-text="post.productPolicy || '—'"></span> · Validación requerida: <span x-text="post.validationRequired || '—'"></span>
 Regla de generación IA: <span x-text="post.aiGenerationRule || '—'"></span>
 Notas: <span x-text="post.notes || '—'"></span>
+<template x-if="post.internalLinksNotes">Enlaces internos sugeridos: <span x-text="post.internalLinksNotes"></span>
+</template><template x-if="post.sourcesConsultadas">Fuentes consultadas: <span x-text="post.sourcesConsultadas"></span></template>
                           </div>
+
+                          <template x-if="blogIsReviewGated(post)">
+                            <div class="mb-3" style="background:#fff;border:1px solid var(--line);border-radius:11px;padding:12px 14px;">
+                              <div class="article-detail-label" style="margin-top:0;">Revisión (obligatoria antes de publicar)</div>
+                              <div class="flex items-center gap-2 mb-3" style="flex-wrap:wrap;">
+                                <span class="badge" :class="blogReviewDecisionBadge(post.reviewDecision)" x-text="blogReviewDecisionLabel(post.reviewDecision)"></span>
+                                <span class="muted text-mono" x-show="post.reviewedAt" x-text="`revisado ${new Date(post.reviewedAt).toLocaleString('es-CO')}`"></span>
+                              </div>
+                              <textarea class="input textarea" placeholder="Notas de revisión (opcional)" x-model="post._reviewNotesDraft" style="min-height:60px;"></textarea>
+                              <div class="flex gap-2 mt-3">
+                                <button class="btn btn-primary btn-sm" @click="reviewBlogPost(post, 'APROBADO')" :disabled="post._reviewBusy">
+                                  <span x-show="post._reviewBusy" class="spin"></span>
+                                  Aprobar
+                                </button>
+                                <button class="btn btn-secondary btn-sm" @click="reviewBlogPost(post, 'RECHAZADO')" :disabled="post._reviewBusy">
+                                  <span x-show="post._reviewBusy" class="spin dark"></span>
+                                  Rechazar
+                                </button>
+                              </div>
+                            </div>
+                          </template>
 
                           <div class="flex items-center gap-2 mb-3" style="flex-wrap:wrap;">
                             <span class="badge" :class="post.published ? 'badge-green' : 'badge-gray'" x-text="post.published ? 'Publicado en WordPress' : 'Sin publicar -- no visible en WordPress'"></span>
                             <span class="muted text-mono" x-show="post.published" x-text="`desde ${new Date(post.publishedAt).toLocaleString('es-CO')}`"></span>
-                            <button class="btn btn-sm" :class="post.published ? 'btn-secondary' : 'btn-primary'" @click="toggleBlogPublish(post)" :disabled="post._publishBusy">
+                            <button
+                              class="btn btn-sm"
+                              :class="post.published ? 'btn-secondary' : 'btn-primary'"
+                              @click="toggleBlogPublish(post)"
+                              :disabled="post._publishBusy || (!post.published && blogIsReviewGated(post) && post.reviewDecision !== 'APROBADO')"
+                              :title="(!post.published && blogIsReviewGated(post) && post.reviewDecision !== 'APROBADO') ? 'Este post debe estar Aprobado en revisión antes de publicarse' : ''"
+                            >
                               <span x-show="post._publishBusy" class="spin"></span>
                               <span x-text="post.published ? 'Despublicar' : 'Publicar en WordPress'"></span>
                             </button>
