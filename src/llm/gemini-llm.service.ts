@@ -32,6 +32,11 @@ import {
   SEARCH_CORRECTION_TOOL_JSON_SCHEMA,
 } from './schemas/search-correction.schema';
 
+/// Tope de espera por llamada a la API de Gemini -- sin esto un pico de
+/// lentitud puntual de Gemini se propaga tal cual al cliente (caso real
+/// 2026-08-09, ver comentario junto al `fetch` mas abajo).
+const GEMINI_REQUEST_TIMEOUT_MS = 20_000;
+
 /// Unico proveedor de IA del pipeline (2026-07-16: Claude retirado por
 /// pedido explicito del usuario, cuenta de Anthropic sin credito --
 /// ver LlmBudgetService.priceForModel). Usa responseSchema nativo de
@@ -220,23 +225,40 @@ export class GeminiLlmService implements LlmService {
       // presupuesto maximo real en USD (MAX_LLM_BUDGET_USD).
       await this.budget.assertWithinBudget(params.stage);
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: params.systemPrompt }] },
-            contents,
-            generationConfig: {
-              responseMimeType: 'application/json',
-              responseSchema,
-              maxOutputTokens: params.maxOutputTokens,
-              thinkingConfig: { thinkingBudget: params.thinkingBudget ?? 0 },
-            },
-          }),
-        },
-      );
+      let response: Response;
+      try {
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: params.systemPrompt }] },
+              contents,
+              generationConfig: {
+                responseMimeType: 'application/json',
+                responseSchema,
+                maxOutputTokens: params.maxOutputTokens,
+                thinkingConfig: { thinkingBudget: params.thinkingBudget ?? 0 },
+              },
+            }),
+            // Sin esto, un `fetch` sin `signal` no tiene limite propio y un
+            // colgue puntual de la API de Gemini se propaga tal cual al
+            // cliente -- caso real 2026-08-09, el chatbot en produccion
+            // quedo en "Escribiendo..." 134s con una consulta que la
+            // segunda vez tardo 3s (no era un bug del codigo, la API
+            // simplemente tuvo un pico de lentitud). GEMINI_REQUEST_TIMEOUT_MS
+            // acota el peor caso a un error rapido en vez de una espera
+            // indefinida.
+            signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
+          },
+        );
+      } catch (err) {
+        if (err instanceof Error && err.name === 'TimeoutError') {
+          throw new Error(`Gemini no respondio en ${GEMINI_REQUEST_TIMEOUT_MS / 1000}s para ${params.stage}`);
+        }
+        throw err;
+      }
 
       if (!response.ok) {
         const errorBody = await response.text();
