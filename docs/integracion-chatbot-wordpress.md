@@ -154,3 +154,62 @@ curl -s -X POST https://diario.ecofarma.co/chatbot/message \
 Una vez pegado el snippet en WordPress, abrir cualquier página de ecofarma.co y confirmar que
 el botón flotante del chatbot aparece encima del carrito de WooCommerce (si lo hay) y que una
 conversación de prueba responde con datos reales.
+
+---
+
+## 6. Estado final validado (2026-08-09) -- dos incidentes reales al desplegar
+
+Todo lo de arriba **ya está en producción y confirmado funcionando de punta a punta**, no es
+un plan. Prueba real: el usuario preguntó `"Necesito NOFERTYL"` (SKU 7702870002636 -- un
+producto que estaba oculto/agotado en WooCommerce y **no existe en Distrimonaco**, el caso
+exacto que este cambio de arquitectura buscaba resolver) y el chatbot respondió con nombre,
+precio real de WooCommerce ($11.880), `canOrder: false` y hasta encontró una segunda
+presentación del mismo producto. Al desplegar salieron dos incidentes reales, documentados
+para no repetirlos:
+
+### 6.1 Se sobreescribió la API key real de producción con el placeholder del repo
+
+Al editar el snippet de disponibilidad (`post_id=338454`) para agregar el campo `price`, se
+reemplazó **todo** `post_content` con el contenido de la copia local del repo
+(`docs/wpcode-inventario-disponibilidad.php`). Esa copia local **siempre** tiene
+`define('ECOFARMA_DISPONIBILIDAD_API_KEY', '<INTEGRATION_API_KEY>')` -- el placeholder, nunca
+el valor real, a propósito (ver el comentario del propio archivo: "nunca commitear el valor
+real en este repo"). La única copia con el valor real vivía exclusivamente en WPCode de
+producción, y se perdió al sobreescribir el post completo.
+
+**Síntoma:** las tres tareas del snippet (reportar, aplicar pendientes, subir catálogo)
+empezaron a fallar con `401 Unauthorized: X-API-Key invalida o ausente` -- confirmado
+reproduciendo a mano, vía Novamira, exactamente la misma llamada `wp_remote_post` que hace
+`ecofarma_disponibilidad_subir_tanda()`, en vez de asumir la causa.
+
+**Fix aplicado:** el usuario recuperó el valor real desde Render (Environment →
+`INTEGRATION_API_KEY`) y se reemplazó **solo esa línea** con `str_replace()` sobre el
+`post_content` actual (no todo el archivo), confirmando el reemplazo (`$count === 1`) antes
+de guardar. Se probó primero con un valor que el usuario pegó por error (no correspondía a
+esta variable) -- se detectó porque la misma prueba de `wp_remote_post` seguía devolviendo
+`401`, nunca se asumió que "ya debería funcionar".
+
+**Regla para la próxima vez que haya que editar este snippet en producción:** si el cambio no
+toca la clave, editar **solo la función/línea específica** sobre el `post_content` que ya está
+en WPCode (leído en vivo), nunca reemplazar el post completo con la copia local del repo --
+esa copia siempre tiene el placeholder de la clave por diseño.
+
+### 6.2 El código nuevo del backend no estaba desplegado cuando se editó el snippet
+
+Justo después de arreglar la clave, la prueba de subida (un solo producto) devolvió
+`400 Bad Request: "items.0.property price should not exist"`. Causa: el cambio de
+"WooCommerce como fuente primaria + columna `price`" (`CatalogItemDto`,
+`WoocommerceCatalogItem`, `ChatbotService`, etc.) todavía estaba sin commitear localmente --
+el `ValidationPipe` del backend (`forbidNonWhitelisted: true`, ver `src/main.ts`) rechaza
+cualquier campo que el DTO desplegado no conozca. El snippet de WordPress ya estaba enviando
+`price`, pero el backend en Render seguía corriendo el código viejo.
+
+**Fix:** commit + push manual a `main` (en vez de esperar al pipeline automático de este
+repo, dado que el usuario estaba probando en vivo) -- Render redesplegó en ~1-2 minutos,
+confirmado con un polling simple contra `POST /chatbot/message` esperando a que la respuesta
+incluyera el campo `canOrder` (señal inequívoca del código nuevo).
+
+**Lección:** al desplegar un cambio que toca **ambos lados** de esta integración (snippet de
+WordPress + backend), el orden importa -- verificar que el backend ya esté en producción
+*antes* de asumir que un snippet de WordPress recién editado va a funcionar, no después de
+que falle.

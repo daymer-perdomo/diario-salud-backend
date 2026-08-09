@@ -72,4 +72,11 @@ de IA) son configurables desde el panel en `Chatbot` → "Configuración del mod
 (`GET`/`PATCH /ai-settings`) en vez de fijos en variables de entorno; la personalidad/tono
 sigue siendo el prompt `CHAT_REPLY_COMPOSITION` de siempre, editable en `Guía`. Antes de tocar
 esto, lee
-[`docs/integracion-chatbot-wordpress.md`](docs/integracion-chatbot-wordpress.md) completo.
+[`docs/integracion-chatbot-wordpress.md`](docs/integracion-chatbot-wordpress.md) completo --
+**sección 6 en particular** documenta dos incidentes reales de despliegue: sobreescribir la
+API key real de producción con el placeholder del repo al reemplazar `post_content` completo
+en vez de solo la línea que cambiaba, y editar el snippet de WordPress antes de que el código
+nuevo del backend estuviera desplegado (el `ValidationPipe` rechaza cualquier campo que el
+DTO en producción no conozca todavía). Ambos con su fix real, para no repetirlos. Validado en
+producción con un producto real que solo existe en WooCommerce (NOFERTYL, SKU
+7702870002636).

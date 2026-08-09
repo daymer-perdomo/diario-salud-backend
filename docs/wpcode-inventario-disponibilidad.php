@@ -68,6 +68,14 @@ if (!defined('ECOFARMA_DISPONIBILIDAD_API_BASE')) {
 if (!defined('ECOFARMA_DISPONIBILIDAD_API_KEY')) {
     // Valor real (INTEGRATION_API_KEY de Render) -- pegar SOLO en WPCode, nunca
     // commitear el valor real en este repo.
+    //
+    // INCIDENTE REAL 2026-08-09 (ver docs/integracion-chatbot-wordpress.md seccion 6.1): al
+    // editar este snippet en produccion para otro cambio, se reemplazo post_content COMPLETO
+    // con esta copia local -- que siempre tiene el placeholder de abajo -- y se perdio el
+    // valor real que solo vivia en WPCode. Rompio las tres tareas con 401 hasta que se
+    // recupero la clave desde Render y se corrigio SOLO esta linea. La proxima vez: editar
+    // solo la funcion/linea que cambia sobre el post_content ya en WPCode (leido en vivo),
+    // nunca reemplazar el post completo con esta copia si el cambio no es tambien la clave.
     define('ECOFARMA_DISPONIBILIDAD_API_KEY', '<INTEGRATION_API_KEY>');
 }
 
