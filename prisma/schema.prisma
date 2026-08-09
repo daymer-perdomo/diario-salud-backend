@@ -294,6 +294,13 @@ model Article {
 
   // --- Reescritura (IA) ---
   rewrittenTitle        String?
+  /// URL legible generada a partir de rewrittenTitle (ver
+  /// ArticleStateMachineService.generateUniqueSlug) -- null en articulos
+  /// que nunca pasaron por markRewritten/validate despues de 2026-08-09
+  /// (los ya publicados antes de esa fecha no se tocan, siguen linkeando
+  /// por id/uuid en WordPress, sin backfill a proposito: cero riesgo de
+  /// invalidar una URL que Google ya tenga indexada).
+  slug                  String?  @unique
   rewrittenSummary      String?
   rewrittenContent      String?
   // Brief seccion 11: secciones obligatorias del articulo publicado que

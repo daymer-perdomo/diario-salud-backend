@@ -29,7 +29,7 @@ export class ArticlesController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Detalle de un articulo aprobado' })
-  @ApiParam({ name: 'id', description: 'UUID del articulo' })
+  @ApiParam({ name: 'id', description: 'UUID del articulo, o su slug (URL legible)' })
   @ApiResponse({ status: 200, description: 'Articulo encontrado.' })
   @ApiResponse({ status: 404, description: 'No existe o no esta aprobado (VALIDADO/PUBLICADO).' })
   findOne(@Param('id') id: string) {

@@ -12,13 +12,39 @@ import { DEFAULT_ARTICLE_IMAGE_URL } from '../common/default-article-image.util'
 /// (aprobado y ya expuesto). RECHAZADO y todo lo demas nunca entra aqui.
 const APPROVED_STATES: ArticleState[] = [ArticleState.VALIDADO, ArticleState.PUBLICADO];
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/// Meta description para WordPress (ver wp_head en el snippet del
+/// shortcode) -- se deriva SIEMPRE de rewrittenSummary en caliente, nunca
+/// se guarda en la base: asi nunca queda desactualizada si el resumen se
+/// edita despues. Corta en el ultimo espacio antes del limite para no
+/// partir una palabra a la mitad.
+const META_DESCRIPTION_MAX_LENGTH = 155;
+
+function truncateForMetaDescription(summary: string | null): string | null {
+  if (!summary) return null;
+  if (summary.length <= META_DESCRIPTION_MAX_LENGTH) return summary;
+  const cut = summary.slice(0, META_DESCRIPTION_MAX_LENGTH);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim() + '…';
+}
+
 /// Forma de salida de la API publica -- deliberadamente mas angosta que el
 /// modelo Prisma: nunca expone originalContent, reportes de grounding/
 /// compliance, validatorId ni notas editoriales internas.
 export interface PublicArticle {
   id: string;
+  /// URL legible para armar el link de detalle en WordPress -- null en
+  /// articulos publicados antes de 2026-08-09 (no se les hizo backfill a
+  /// proposito, ver docs/integracion-wordpress-diario-salud.md). El
+  /// consumidor debe usar slug si existe, si no caer a id.
+  slug: string | null;
   title: string;
   summary: string | null;
+  /// Version corta de `summary` (~155 caracteres) para <meta
+  /// name="description">. Nunca se guarda -- se deriva del resumen
+  /// vigente en cada respuesta.
+  metaDescription: string | null;
   content: string;
   keyPoints: string[];
   whyItMatters: string | null;
@@ -143,10 +169,16 @@ export class ArticlesService {
   /// Detalle publico de un articulo. Devuelve 404 tanto si no existe como
   /// si existe pero no esta aprobado -- para no revelar que un articulo en
   /// estado interno (BORRADOR, ERROR, etc) esta siendo procesado.
-  async findApprovedById(id: string): Promise<PublicArticle> {
-    const article = await this.prisma.article.findUnique({ where: { id }, include: { source: true } });
+  ///
+  /// Acepta id (uuid, todos los links viejos de WordPress siguen
+  /// funcionando) o slug (links nuevos, mas legibles -- ver
+  /// ArticleStateMachineService.generateUniqueSlug). Un solo endpoint
+  /// resuelve ambos, sin rutas nuevas.
+  async findApprovedById(idOrSlug: string): Promise<PublicArticle> {
+    const where = UUID_REGEX.test(idOrSlug) ? { id: idOrSlug } : { slug: idOrSlug };
+    const article = await this.prisma.article.findUnique({ where, include: { source: true } });
     if (!article || !APPROVED_STATES.includes(article.state)) {
-      throw new NotFoundException(`Articulo ${id} no encontrado`);
+      throw new NotFoundException(`Articulo ${idOrSlug} no encontrado`);
     }
     return this.toPublicArticle(article);
   }
@@ -154,8 +186,10 @@ export class ArticlesService {
   private toPublicArticle(article: Article & { source: Source }): PublicArticle {
     return {
       id: article.id,
+      slug: article.slug,
       title: article.rewrittenTitle ?? article.originalTitle,
       summary: article.rewrittenSummary,
+      metaDescription: truncateForMetaDescription(article.rewrittenSummary),
       content: article.rewrittenContent ?? '',
       keyPoints: article.rewrittenKeyPoints,
       whyItMatters: article.rewrittenWhyItMatters,

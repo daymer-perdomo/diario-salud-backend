@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService, TransactionClient } from '../audit/audit-log.service';
+import { slugify } from '../common/slugify.util';
 
 /// Unico punto de escritura permitido sobre Article.state. Cada metodo
 /// representa una transicion valida de la maquina de estados del plan de
@@ -27,6 +28,25 @@ export class ArticleStateMachineService {
     const article = await tx.article.findUnique({ where: { id: articleId } });
     if (!article) throw new BadRequestException(`Article ${articleId} no encontrado`);
     return article;
+  }
+
+  /// Genera un slug legible a partir del titulo vigente (ver slugify.util)
+  /// y le agrega un sufijo -2, -3... si ya existe otro articulo con el
+  /// mismo slug -- @@unique en el schema es la garantia final, esto evita
+  /// que la escritura falle por una colision predecible (dos titulos
+  /// parecidos generando el mismo slug). Se llama SIEMPRE dentro de la
+  /// misma transaccion que fija el titulo (markRewritten/validate), nunca
+  /// para un articulo ya PUBLICADO (ver comentario en cada uno de esos
+  /// metodos).
+  private async generateUniqueSlug(tx: TransactionClient, title: string, excludeId: string): Promise<string> {
+    const base = slugify(title);
+    let candidate = base;
+    let suffix = 2;
+    while (await tx.article.findFirst({ where: { slug: candidate, NOT: { id: excludeId } }, select: { id: true } })) {
+      candidate = `${base}-${suffix}`;
+      suffix++;
+    }
+    return candidate;
   }
 
   private assertState(article: Article, allowed: ArticleState[]) {
@@ -128,11 +148,17 @@ export class ArticleStateMachineService {
         ArticleState.EN_VALIDACION,
       ]);
 
+      // Ninguno de los estados de arriba es PUBLICADO -- el slug de un
+      // articulo ya publicado nunca se toca (ver comentario de
+      // generateUniqueSlug), asi que regenerarlo siempre aca es seguro.
+      const slug = await this.generateUniqueSlug(tx, params.rewrittenTitle, articleId);
+
       const updated = await tx.article.update({
         where: { id: articleId },
         data: {
           state: ArticleState.REESCRITO,
           rewrittenTitle: params.rewrittenTitle,
+          slug,
           rewrittenSummary: params.rewrittenSummary,
           rewrittenContent: params.rewrittenContent,
           rewrittenKeyPoints: params.rewrittenKeyPoints,
@@ -297,6 +323,15 @@ export class ArticleStateMachineService {
       const nextState =
         params.decision === ValidationDecision.RECHAZADO ? ArticleState.RECHAZADO : ArticleState.VALIDADO;
 
+      // El slug solo se regenera si el validador de verdad cambio el
+      // titulo -- si no, se deja el que ya tenia (evita churn innecesario
+      // en cada validate()). Este metodo solo corre en EN_VALIDACION
+      // (assertState arriba), siempre antes de PUBLICADO, asi que sigue
+      // siendo seguro tocarlo aca.
+      const slug = params.editedTitle
+        ? await this.generateUniqueSlug(tx, params.editedTitle, articleId)
+        : current.slug;
+
       const updated = await tx.article.update({
         where: { id: articleId },
         data: {
@@ -306,6 +341,7 @@ export class ArticleStateMachineService {
           validationNotes: params.notes,
           validatedAt: nextState === ArticleState.VALIDADO ? new Date() : null,
           rewrittenTitle: params.editedTitle ?? current.rewrittenTitle,
+          slug,
           rewrittenSummary: params.editedSummary ?? current.rewrittenSummary,
           rewrittenContent: params.editedContent ?? current.rewrittenContent,
           rewrittenKeyPoints: params.editedKeyPoints ?? current.rewrittenKeyPoints,

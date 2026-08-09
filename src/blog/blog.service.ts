@@ -5,6 +5,7 @@ import { join } from 'path';
 import { BlogFaq, BlogPost, BlogPostSection } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_ARTICLE_IMAGE_URL } from '../common/default-article-image.util';
+import { slugify } from '../common/slugify.util';
 import { BLOG_IMAGE_UPLOAD_DIR, blogImagePublicUrl } from './blog-image.storage';
 import { QueryBlogPostsDto } from './dto/query-blog-posts.dto';
 import { QueryPublicBlogPostsDto } from './dto/query-public-blog-posts.dto';
@@ -115,7 +116,7 @@ export class BlogService {
   /// dos posts con el mismo titulo tendran el mismo slug -- aceptable para
   /// este alcance, se puede editar a mano despues via updatePost.
   async createPost(dto: CreateBlogPostDto) {
-    const slug = this.slugify(dto.title);
+    const slug = slugify(dto.title);
     return this.prisma.blogPost.create({
       data: {
         globalId: `panel-${randomUUID()}`,
@@ -257,18 +258,6 @@ export class BlogService {
     });
     if (!post || !post.published) throw new NotFoundException(`BlogPost ${id} no encontrado`);
     return this.toPublicBlogPost(post);
-  }
-
-  private slugify(title: string): string {
-    return (
-      title
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || randomUUID()
-    );
   }
 
   private toPublicBlogPost(post: BlogPost & { sections: BlogPostSection[]; faqs: BlogFaq[] }): PublicBlogPost {
