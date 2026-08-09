@@ -80,3 +80,12 @@ nuevo del backend estuviera desplegado (el `ValidationPipe` rechaza cualquier ca
 DTO en producción no conozca todavía). Ambos con su fix real, para no repetirlos. Validado en
 producción con un producto real que solo existe en WooCommerce (NOFERTYL, SKU
 7702870002636).
+
+**Sección 7**: resultados de productos en carrusel horizontal siempre (no tarjetas/tabla
+según cantidad) y saludo inicial con lista de capacidades -- **dos bugs de CSS reales que no
+daban ningún error visible** (comentario `///` inválido dentro de un string CSS, que hace que
+el navegador descarte la regla completa en silencio; y un carrusel que se aplastaba a ~2px
+con historial largo por la interacción `overflow-x:auto` → `min-height:auto` se vuelve `0` en
+flexbox). Si algo dentro de `chatbot.js` deja de aplicarse "sin razón", **verificar el CSSOM
+real** (`shadowRoot.styleSheets[0].cssRules`) en vez de asumir que el código fuente es lo que
+se está aplicando -- un error de sintaxis CSS no siempre aparece en la consola.

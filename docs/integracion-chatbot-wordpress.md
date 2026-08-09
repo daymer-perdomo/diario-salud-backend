@@ -213,3 +213,55 @@ incluyera el campo `canOrder` (señal inequívoca del código nuevo).
 WordPress + backend), el orden importa -- verificar que el backend ya esté en producción
 *antes* de asumir que un snippet de WordPress recién editado va a funcionar, no después de
 que falle.
+
+---
+
+## 7. UX del widget: carrusel horizontal + saludo estructurado (2026-08-09)
+
+El usuario compartió capturas de un chatbot de referencia ("Sommer", de la app de Farmatodo)
+pidiendo entender su lógica -- no copiar sus estilos, que siguen siendo los de EcoFarma.
+Decisiones explícitas tomadas sobre esa referencia:
+
+- **Sí**: resultados de productos siempre en un carrusel horizontal deslizable (antes:
+  tarjetas para 1-2, tabla para 3+), y un saludo inicial estructurado en viñetas de lo que
+  el asistente puede hacer.
+- **No, por ahora**: escalar a un humano (el botón "Hablar con un farmacéutico" ya existe en
+  el menú pero sigue deshabilitado, decisión previa del 2026-07-29) y un gate de
+  consentimiento de datos (el chat sigue siendo completamente anónimo, sin login).
+
+Cambios en `public/widget/chatbot.js`: `ensureGreeting()` con lista de capacidades +
+disclaimer ("puedo cometer errores"); `renderProductsCards`/`renderProductsTable` se
+fusionaron en una sola `renderProductsCarousel()`, usada siempre. Mismo tratamiento en
+`public/sections/chatbot-test.html` (consola interna).
+
+### 7.1 Dos bugs de CSS reales encontrados en producción, ninguno visible en el código
+
+Ambos pasaron los tres commits+push+redeploy sin ningún error de build ni de consola --
+silenciosos hasta que se inspeccionó el CSSOM real con `getComputedStyle`/
+`getBoundingClientRect` en producción.
+
+**Bug 1 -- comentario `///` inválido en CSS.** Este repo usa `///` como convención de
+comentario de documentación en TypeScript (ver casi cualquier archivo de `src/`). Se usó por
+costumbre dentro del string `STYLES` (CSS puro) de `chatbot.js`. `//` no es un comentario
+válido en CSS -- el parser del navegador lo trata como un error de sintaxis y, según el
+navegador, puede descartar en silencio la regla completa que sigue. Confirmado inspeccionando
+`shadowRoot.styleSheets[0].cssRules`: la regla `.products-carousel` nunca apareció en el
+CSSOM pese a estar, textualmente, en el `<style>` -- 59 reglas se parsearon bien, esa una se
+perdió sin ningún error en consola. Fix: `/* ... */`, el único comentario válido en CSS.
+**Lección: nunca usar `///` dentro de un template literal de CSS, ni siquiera por hábito.**
+
+**Bug 2 -- el carrusel se aplastaba a ~2px con historial largo.** `overflow-x: auto` en
+`.products-carousel` (necesario para el scroll horizontal) hace que el navegador calcule
+también `overflow-y: auto` -- regla real de CSS: si un eje es `visible` y el otro no, el
+`visible` pasa a `auto` también. Eso activa un caso especial de flexbox: `min-height: auto`
+se vuelve `min-height: 0` para cualquier item cuyo `overflow` no sea `visible`. Como
+`.messages` es `flex-direction: column` con una altura definida (`flex: 1` dentro del panel),
+en cuanto el historial de la conversación excede esa altura visible, el algoritmo de
+`flex-shrink` aplasta primero a los items con `min-height` efectivo `0` -- el carrusel,
+nunca los globos de texto normales (que sí conservan `min-height: auto` real porque su
+`overflow` es `visible`). Confirmado con `getBoundingClientRect()` real en producción:
+altura de la tarjeta 2px pese a que sus hijos (imagen 96px + cuerpo ~105px) reportaban su
+alto real por separado. Fix: `flex-shrink: 0` explícito en `.products-carousel`. Validado de
+nuevo en producción simulando 4 preguntas seguidas (`scrollHeight` de `.messages`: 2084px vs.
+`clientHeight`: 438px, la misma condición de desborde que causaba el bug) -- la tarjeta quedó
+en 337px, su alto de contenido real.
