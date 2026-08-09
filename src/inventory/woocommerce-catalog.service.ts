@@ -132,28 +132,30 @@ export class WoocommerceCatalogService {
   /// verse igual que "no encontrado": el chatbot ya sabe redactar esa
   /// respuesta sin necesidad de un error especial.
   ///
-  /// 2026-08-09 (3ra vuelta): `orderBy` antepone `stockStatus` (asc, asi que
-  /// 'instock' < 'onbackorder' < 'outofstock' alfabeticamente) ANTES de
-  /// `name` -- sin esto, con ~80% del catalogo real agotado (verificado en
-  /// vivo: 33,761 de 42,335 productos publicados, ver conversacion con el
-  /// usuario 2026-08-09), un `take` de 30 ordenado solo por nombre casi
-  /// siempre devolvia agotados primero. El usuario reporto que "Agregar
-  /// producto" SIEMPRE lo mandaba a un producto agotado -- no era mala
-  /// suerte, era la falta de este orden. No se filtra por stock (el cliente
-  /// puede querer saber que un producto existe aunque este agotado), solo
-  /// se prioriza lo que de verdad se puede comprar.
+  /// 2026-08-09 (3ra vuelta): `stockStatus: { not: 'outofstock' }` --
+  /// pedido explicito del usuario ("no muestre producto que no tenga
+  /// stock") tras reportar que "Agregar producto" SIEMPRE terminaba en un
+  /// producto agotado. Causa real verificada en vivo contra WordPress:
+  /// ~80% del catalogo publicado esta agotado (33,761 de 42,335
+  /// productos), y muchos de los agotados son variantes/duplicados de
+  /// "distribuidores" con precio placeholder 9999999 que jamas se pueden
+  /// comprar -- sin este filtro dominaban los resultados (ordenados solo
+  /// por nombre) y el cliente veia productos que nunca podia agregar al
+  /// carrito real. `onbackorder` se deja pasar a proposito: WooCommerce
+  /// SI permite agregarlo al carrito aunque no tenga stock inmediato.
   async searchByTerms(terms: string[], take: number): Promise<WoocommerceProductSummary[]> {
     const cleanTerms = terms.map((t) => t.trim()).filter(Boolean);
     if (cleanTerms.length === 0) return [];
 
     const items = await this.prisma.woocommerceCatalogItem.findMany({
       where: {
+        stockStatus: { not: 'outofstock' },
         OR: cleanTerms.flatMap((t) => [
           { sku: { contains: t, mode: 'insensitive' as const } },
           { name: { contains: t, mode: 'insensitive' as const } },
         ]),
       },
-      orderBy: [{ stockStatus: 'asc' }, { name: 'asc' }],
+      orderBy: { name: 'asc' },
       take,
     });
 
