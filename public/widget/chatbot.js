@@ -77,8 +77,18 @@
     /* Carrusel horizontal SIEMPRE (sin importar cuantos resultados haya) --
        pedido explicito del usuario 2026-08-09, inspirado en la referencia
        del chatbot "Sommer" de Farmatodo. Reemplaza el diseno anterior
-       (tarjetas para 1-2, tabla para 3+). */
-    .products-carousel { align-self: stretch; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+       (tarjetas para 1-2, tabla para 3+).
+       flex-shrink:0 es obligatorio, no cosmetico: .messages es flex-column
+       y overflow-x:auto aca fuerza a que el navegador calcule tambien
+       overflow-y:auto (regla CSS: si un eje es "visible" y el otro no, el
+       visible pasa a auto) -- eso activa el caso especial de flexbox donde
+       min-height:auto se vuelve min-height:0 para items con overflow
+       distinto de visible. Sin flex-shrink:0, en cuanto el historial del
+       chat excede el alto visible del panel, el algoritmo de flex aplasta
+       este carrusel a ~2px en vez de dejarlo con su alto de contenido
+       (bug real, confirmado inspeccionando getBoundingClientRect en
+       produccion: alto 2px pese a fotos/texto reportando su alto real). */
+    .products-carousel { align-self: stretch; flex-shrink: 0; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
     .product-card {
       flex: 0 0 132px; width: 132px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
       overflow: hidden; display: flex; flex-direction: column; scroll-snap-align: start;
