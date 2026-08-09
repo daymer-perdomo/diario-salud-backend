@@ -7,6 +7,12 @@
  * snippet_id). Tipo: Fragmento de codigo de PHP. Ubicacion: "Ejecutar en todas partes"
  * (Auto insertar).
  *
+ * FIX 2026-08-08 (segunda vuelta): rest_do_request() exige current_user_can(
+ * 'manage_woocommerce'). El cron real del sistema (crontab -> php -q wp-cron.php) corre
+ * sin usuario autenticado -- el PUT fallaba en silencio (is_error true, reportado como
+ * ok:false al backend, sin excepcion que loggear) y el cambio nunca se aplicaba. Ver
+ * wp_set_current_user() al inicio de la tarea 2.
+ *
  * TERCER intento de conectar disponibilidad de WooCommerce con el backend de EcoFarma --
  * ver docs/integracion-inventario-wordpress.md secciones 0 y 0.1 para el historial
  * completo de los dos anteriores:
@@ -186,6 +192,18 @@ add_action('ecofarma_evento_reportar_disponibilidad', 'ecofarma_disponibilidad_r
 if (!function_exists('ecofarma_disponibilidad_aplicar_pendientes')) {
 function ecofarma_disponibilidad_aplicar_pendientes() {
     try {
+        // rest_do_request() exige que el usuario ACTUAL tenga manage_woocommerce
+        // (lo revisa el permission_callback del controlador de productos). El
+        // cron real del sistema (crontab -> php -q wp-cron.php) corre sin ningun
+        // usuario autenticado -- sin esto, cada PUT fallaba en silencio (is_error
+        // true, capturado y reportado como "ok:false" al backend, nunca se veia
+        // en error_log porque no es una excepcion) y el producto nunca cambiaba.
+        // Confirmado 2026-08-08: el mismo rest_do_request SI funciono al probarlo
+        // a mano (contexto con usuario cargado), y fallo via el cron real.
+        if (!get_current_user_id()) {
+            wp_set_current_user(889); // daymer, administrador
+        }
+
         $res = wp_remote_get(ECOFARMA_DISPONIBILIDAD_API_BASE . '/integration/woocommerce/pending-changes', array(
             'headers' => array('X-API-Key' => ECOFARMA_DISPONIBILIDAD_API_KEY),
             'timeout' => 20,
