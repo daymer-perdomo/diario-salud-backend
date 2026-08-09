@@ -329,6 +329,23 @@ carrito ✓" en el botón. Si `window.wc_add_to_cart_params` no existe (nunca de
 ecofarma.co real -- es solo defensivo, y es el caso siempre en la consola de prueba interna
 del panel, que vive en nuestro propio dominio), cae a abrir `permalink` en pestaña nueva.
 
+**Verificado en producción tras el despliegue (2026-08-09):** con un producto realmente en
+stock en WooCommerce, "Agregar producto" agregó de verdad al carrito real sin salir del
+widget (`.xoo-wsc-basket` y `/carrito/` lo confirmaron, limpiado después). **Comportamiento
+observado con productos agotados en WooCommerce (esperado, no es un bug de esta
+integración):** si el producto está agotado *en WooCommerce* (no en Distrimonaco -- son
+sistemas de stock independientes, ver sección 3), el propio JS core de WooCommerce
+(`add-to-cart.min.js`) responde al POST con `{error: true, product_url: "..."}` y hace
+`window.location = product_url` -- el cliente sale del widget y aterriza en la página del
+producto (que sí muestra "AGOTADO" con claridad). Es el mismo comportamiento que tendría
+CUALQUIER botón "Añadir al carrito" nativo del sitio con ese producto, no algo específico de
+nuestro `<a>` dinámico. Al probar esto se encontró además que **el catálogo de WooCommerce
+tiene entradas duplicadas para el mismo nombre de producto** (una real con stock/precio
+correcto, otra obsoleta con precio placeholder `9999999`) -- el buscador del chatbot, al ser
+por similitud de texto, a veces encuentra la duplicada. Es un problema de calidad de datos
+del catálogo sincronizado, no de esta feature; queda anotado para una futura limpieza de
+`WoocommerceCatalogItem` (deduplicar por nombre o preferir el registro con precio real).
+
 ### 8.3 Vista de detalle ("Ver producto")
 
 El pequeño bloque de detalle que se expandía dentro de la tarjeta del carrusel (iteración
