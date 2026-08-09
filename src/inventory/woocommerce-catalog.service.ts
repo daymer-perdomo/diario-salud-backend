@@ -131,6 +131,17 @@ export class WoocommerceCatalogService {
   /// vacio es un problema a reportar), aca un catalogo vacio o sin match debe
   /// verse igual que "no encontrado": el chatbot ya sabe redactar esa
   /// respuesta sin necesidad de un error especial.
+  ///
+  /// 2026-08-09 (3ra vuelta): `orderBy` antepone `stockStatus` (asc, asi que
+  /// 'instock' < 'onbackorder' < 'outofstock' alfabeticamente) ANTES de
+  /// `name` -- sin esto, con ~80% del catalogo real agotado (verificado en
+  /// vivo: 33,761 de 42,335 productos publicados, ver conversacion con el
+  /// usuario 2026-08-09), un `take` de 30 ordenado solo por nombre casi
+  /// siempre devolvia agotados primero. El usuario reporto que "Agregar
+  /// producto" SIEMPRE lo mandaba a un producto agotado -- no era mala
+  /// suerte, era la falta de este orden. No se filtra por stock (el cliente
+  /// puede querer saber que un producto existe aunque este agotado), solo
+  /// se prioriza lo que de verdad se puede comprar.
   async searchByTerms(terms: string[], take: number): Promise<WoocommerceProductSummary[]> {
     const cleanTerms = terms.map((t) => t.trim()).filter(Boolean);
     if (cleanTerms.length === 0) return [];
@@ -142,7 +153,7 @@ export class WoocommerceCatalogService {
           { name: { contains: t, mode: 'insensitive' as const } },
         ]),
       },
-      orderBy: { name: 'asc' },
+      orderBy: [{ stockStatus: 'asc' }, { name: 'asc' }],
       take,
     });
 
