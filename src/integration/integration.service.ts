@@ -156,6 +156,7 @@ export class IntegrationService {
         stockStatus: item.stockStatus,
         catalogVisibility: item.catalogVisibility,
         manageStock: item.manageStock,
+        price: item.price ?? null,
       };
       await this.prisma.woocommerceCatalogItem.upsert({
         where: { id: item.id },

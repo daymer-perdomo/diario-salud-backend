@@ -85,6 +85,7 @@
     .qty-input { width: 42px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 4px; font-size: 12px; }
     .add-btn { background: ${BRAND_BLUE}; color: #fff; border: none; border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; margin-top: 4px; }
     .add-btn:disabled { opacity: .5; cursor: default; }
+    .store-link { color: ${BRAND_BLUE}; font-size: 11px; font-weight: 600; text-decoration: underline; white-space: nowrap; margin-top: 4px; display: inline-block; }
     .row-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
     .products-cards { align-self: stretch; display: flex; gap: 10px; flex-wrap: wrap; }
     .product-card {
@@ -529,9 +530,12 @@
           (p.labName ? '<div class="product-card-lab">' + escapeHtml(p.labName) + '</div>' : '') +
           (p.requiresPrescription ? '<div class="rx">Requiere receta</div>' : '') +
           '<div class="product-card-price">' + formatPrice(p.price) + '</div>' +
-          '<div class="product-card-stock">Stock: ' + escapeHtml(p.stock) + '</div>';
+          // Stock fisico solo tiene sentido si se puede pedir por el chat
+          // (canOrder) -- si no, mostrar "Stock: 0" seria enganoso (puede
+          // estar disponible en linea sin cruce con el inventario fisico).
+          (p.canOrder ? '<div class="product-card-stock">Stock: ' + escapeHtml(p.stock) + '</div>' : '');
 
-        if (p.stock > 0) {
+        if (p.canOrder && p.stock > 0) {
           var qtyInput = document.createElement('input');
           qtyInput.type = 'number';
           qtyInput.className = 'qty-input';
@@ -554,6 +558,18 @@
           actionsWrap.appendChild(qtyInput);
           actionsWrap.appendChild(addBtn);
           body.appendChild(actionsWrap);
+        } else if (p.permalink) {
+          // Sin contraparte en el catalogo interno (o agotado): no se puede
+          // armar un pedido por este chat (el personal despacha de
+          // inventario fisico real, ver ChatCartService.addItem) -- se
+          // ofrece el link directo a la tienda en vez de "Agregar".
+          var storeLink = document.createElement('a');
+          storeLink.className = 'store-link';
+          storeLink.href = p.permalink;
+          storeLink.target = '_blank';
+          storeLink.rel = 'noopener noreferrer';
+          storeLink.textContent = 'Ver en la tienda';
+          body.appendChild(storeLink);
         }
 
         card.appendChild(body);
@@ -604,11 +620,13 @@
         tr.appendChild(priceTd);
 
         var stockTd = document.createElement('td');
-        stockTd.textContent = p.stock;
+        // Igual que en renderProductsCards: el stock fisico solo tiene
+        // sentido si se puede pedir por el chat (canOrder).
+        stockTd.textContent = p.canOrder ? p.stock : '--';
         tr.appendChild(stockTd);
 
         var actionsTd = document.createElement('td');
-        if (p.stock > 0) {
+        if (p.canOrder && p.stock > 0) {
           var qtyInput = document.createElement('input');
           qtyInput.type = 'number';
           qtyInput.className = 'qty-input';
@@ -631,6 +649,14 @@
           actionsWrap.appendChild(qtyInput);
           actionsWrap.appendChild(addBtn);
           actionsTd.appendChild(actionsWrap);
+        } else if (p.permalink) {
+          var storeLink = document.createElement('a');
+          storeLink.className = 'store-link';
+          storeLink.href = p.permalink;
+          storeLink.target = '_blank';
+          storeLink.rel = 'noopener noreferrer';
+          storeLink.textContent = 'Ver en la tienda';
+          actionsTd.appendChild(storeLink);
         }
         tr.appendChild(actionsTd);
 

@@ -11,6 +11,9 @@ export interface WoocommerceProductSummary {
   stockStatus: string;
   catalogVisibility: string;
   manageStock: boolean;
+  /// Precio efectivo reportado por WooCommerce (ver comentario del campo en
+  /// el schema) -- null si ese producto todavia no lo trae sincronizado.
+  price: number | null;
   /// Cambio encolado y todavia no aplicado en WooCommerce (undefined = nada
   /// pendiente). El dashboard los usa para mostrar "pendiente de aplicar"
   /// junto al estado real, en vez de mentir diciendo que ya se aplico.
@@ -95,35 +98,55 @@ export class WoocommerceCatalogService {
     return this.withPending(items);
   }
 
-  /// Cruce por SKU para el chatbot (ver ChatbotService.gatherFacts) --
-  /// distinto de searchProducts (que es para el buscador del panel): aca
-  /// se pregunta por SKUs puntuales ya encontrados en el catalogo de
-  /// Distrimonaco, para saber si ADEMAS estan visibles/con stock en la
-  /// tienda WooCommerce real. Un solo `findMany` para todo el lote (nunca
-  /// una consulta por producto). `sku` no es @unique en esta tabla (puede
-  /// venir vacio para productos sin sku en WooCommerce) -- si un mismo sku
-  /// aparece mas de una vez, se usa la fila con `syncedAt` mas reciente.
-  /// Un sku ausente del resultado (no en el Map) significa que WordPress
-  /// todavia no subio ese producto en su copia local -- el llamador no
-  /// debe inventar un estado, solo omitir el dato.
-  async findAvailabilityBySkus(
-    skus: string[],
-  ): Promise<Map<string, { visibleOnline: boolean; inStockOnline: boolean; syncedAt: Date }>> {
+  /// Cruce exacto por SKU en lote (una sola consulta, nunca una por
+  /// producto) -- lo usa ChatbotService para completar con precio/estado de
+  /// WooCommerce las ALTERNATIVAS que salen de Distrimonaco (activeIngredient
+  /// solo existe ahi). `sku` no es @unique en esta tabla -- si un mismo sku
+  /// aparece mas de una vez, se usa la fila con `syncedAt` mas reciente. Un
+  /// sku ausente del Map significa que WordPress todavia no subio ese
+  /// producto en su copia local -- el llamador no debe inventar el dato.
+  async findBySkus(skus: string[]): Promise<Map<string, WoocommerceProductSummary>> {
     const filtered = [...new Set(skus.filter((s) => s && s.trim()))];
-    const result = new Map<string, { visibleOnline: boolean; inStockOnline: boolean; syncedAt: Date }>();
-    if (filtered.length === 0) return result;
+    if (filtered.length === 0) return new Map();
 
     const items = await this.prisma.woocommerceCatalogItem.findMany({ where: { sku: { in: filtered } } });
-    for (const item of items) {
-      const existing = result.get(item.sku);
-      if (existing && existing.syncedAt >= item.syncedAt) continue;
-      result.set(item.sku, {
-        visibleOnline: item.catalogVisibility === 'visible',
-        inStockOnline: item.stockStatus === 'instock',
-        syncedAt: item.syncedAt,
-      });
+    const summaries = await this.withPending(items);
+
+    const result = new Map<string, WoocommerceProductSummary>();
+    for (const summary of summaries) {
+      const existing = result.get(summary.sku);
+      if (existing && (existing.syncedAt ?? new Date(0)) >= (summary.syncedAt ?? new Date(0))) continue;
+      result.set(summary.sku, summary);
     }
     return result;
+  }
+
+  /// Busqueda PRIMARIA del chatbot (ver ChatbotService.gatherFacts, 2026-08-09
+  /// -- WooCommerce paso a ser la fuente principal de nombre/precio del
+  /// chatbot, Distrimonaco quedo como enriquecimiento secundario por SKU).
+  /// Mismo patron OR-contains multi-termino que InventoryService.searchProducts
+  /// (uno o mas terminos, ya expandidos por sinonimos), pero SIN lanzar
+  /// ServiceUnavailableException si el catalogo esta vacio -- a diferencia de
+  /// searchProducts (que es para el buscador del panel, donde un catalogo
+  /// vacio es un problema a reportar), aca un catalogo vacio o sin match debe
+  /// verse igual que "no encontrado": el chatbot ya sabe redactar esa
+  /// respuesta sin necesidad de un error especial.
+  async searchByTerms(terms: string[], take: number): Promise<WoocommerceProductSummary[]> {
+    const cleanTerms = terms.map((t) => t.trim()).filter(Boolean);
+    if (cleanTerms.length === 0) return [];
+
+    const items = await this.prisma.woocommerceCatalogItem.findMany({
+      where: {
+        OR: cleanTerms.flatMap((t) => [
+          { sku: { contains: t, mode: 'insensitive' as const } },
+          { name: { contains: t, mode: 'insensitive' as const } },
+        ]),
+      },
+      orderBy: { name: 'asc' },
+      take,
+    });
+
+    return this.withPending(items);
   }
 
   /// Lista lo que se marco "no disponible" desde este dashboard, mas
@@ -229,6 +252,7 @@ export class WoocommerceCatalogService {
       stockStatus: string;
       catalogVisibility: string;
       manageStock: boolean;
+      price: unknown;
       syncedAt: Date;
     }>,
   ): Promise<WoocommerceProductSummary[]> {
@@ -254,6 +278,7 @@ export class WoocommerceCatalogService {
         stockStatus: item.stockStatus,
         catalogVisibility: item.catalogVisibility,
         manageStock: item.manageStock,
+        price: item.price === null || item.price === undefined ? null : Number(item.price),
         syncedAt: item.syncedAt,
         ...(visibility?.status === WoocommercePendingStatus.PENDIENTE
           ? { pendingHidden: visibility.value }

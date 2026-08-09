@@ -60,51 +60,64 @@ function ecofarma_chatbot_widget_embed() {
 add_action('wp_footer', 'ecofarma_chatbot_widget_embed');
 ```
 
-**Estado (2026-08-09): preparado, todavía sin pegar en WPCode de producción, sin
-`snippet_id`.** Antes de pegarlo: validar sintaxis (`php -l`, no disponible en este entorno de
-desarrollo -- validar donde sí haya PHP antes de guardar en WPCode) y, tras guardarlo,
-confirmar que el sitio responde 200 y que el snippet realmente quedó "Activo" contra el
-listado real de fragmentos (ver sección 10 de
-`docs/integracion-wordpress-diario-salud.md` sobre falsos negativos con WPCode).
+**Estado (2026-08-09): en producción, activo, confirmado funcionando.** `post_id=338459`
+(WPCode, `post_status=publish`, tipo `php`, ubicación `everywhere`), creado y verificado vía
+Novamira (sintaxis validada con `php -l` contra el propio servidor, y confirmado contra la
+base de datos real -- `post_status`, taxonomías y la caché `wpcode_snippets` -- en vez de
+confiar solo en la UI, ver sección 10 de `docs/integracion-wordpress-diario-salud.md` sobre
+falsos negativos con WPCode). Validado en vivo: el `<script>` aparece en el HTML de
+ecofarma.co, el botón flotante del widget se ve y abre el panel de chat, y una petición real
+a `POST /chatbot/message` **desde el origen `https://ecofarma.co`** (no localhost) respondió
+`201` con una respuesta real de Gemini -- confirma también que el CORS abierto del backend
+funciona correctamente cross-origin.
 
 ---
 
-## 3. El chatbot ahora conoce WooCommerce, no solo Distrimonaco
+## 3. WooCommerce es la fuente PRIMARIA de búsqueda, precio y disponibilidad
 
-Antes de esto, `ChatbotService` solo consultaba `InventoryService` (catálogo `Product`/
-`ProductStock`, sincronizado desde Distrimonaco -- ver `DistrimonacoSyncService`). Eso es
-stock **físico**, no necesariamente lo que se puede comprar en línea: un producto puede
-tener existencia real en sucursal y a la vez estar oculto/agotado en la tienda WooCommerce
-(marcado así desde el panel, ver `docs/integracion-inventario-wordpress.md`, o directo en
-`wp-admin`).
+**Cambio de arquitectura 2026-08-09, pedido explícito del usuario:** hasta acá el chatbot
+buscaba primero en el catálogo interno de EcoFarma (`Product`/`ProductStock`, alimentado por
+Distrimonaco, ~7,000 productos) y solo cruzaba WooCommerce como verificación secundaria de
+si el producto seguía disponible en línea. Eso se invirtió: **la búsqueda por nombre ahora
+consulta primero WooCommerce** (`WoocommerceCatalogItem`, ~42,000 productos -- el catálogo
+real y completo de la tienda), y Distrimonaco pasó a ser un enriquecimiento secundario.
 
-`ChatbotService.gatherFacts()` ahora cruza por SKU cada producto encontrado contra
-`WoocommerceCatalogItem` -- la misma copia local que sube el snippet de disponibilidad cada
-15 minutos (`docs/wpcode-inventario-disponibilidad.php`, tarea
-`ecofarma_evento_reportar_disponibilidad`). Un solo `findMany` por lote, nunca una consulta
-por producto (`WoocommerceCatalogService.findAvailabilityBySkus`).
+- **Nombre, precio, imagen, disponibilidad ("¿se puede comprar ahora?")**: siempre de
+  WooCommerce. El precio (`price` en `WoocommerceCatalogItem`, columna nueva) es el que sube
+  el snippet de disponibilidad vía `get_price()` de WooCommerce -- el precio efectivo, con
+  oferta aplicada si la hay, igual al que ve el cliente en la tienda.
+- **Stock físico por sucursal, si requiere receta, alternativas por principio activo**: solo
+  si ese mismo SKU *también* existe, activo, en el catálogo interno de Distrimonaco -- son
+  datos que WooCommerce no tiene. Si no hay esa segunda fila, el chatbot lo dice con
+  claridad (`requiresPrescription: null` → "confirma si requiere receta médica") en vez de
+  asumir que no aplica.
 
-Cada producto en la respuesta del chatbot puede traer un campo `onlineStore`:
+**Límite real de producto, aceptado a propósito:** el carrito del chatbot
+(`ChatCartService.addItem`) arma cada solicitud de pedido contra el catálogo interno de
+Distrimonaco, porque el personal despacha desde inventario físico real -- nunca desde
+WooCommerce. Con ~42,000 productos en WooCommerce contra ~7,000 en Distrimonaco, la mayoría
+de lo que el chatbot ahora puede *mostrar* no se puede agregar al carrito del chat. Para esos
+casos (`canOrder: false` en cada producto), el chatbot no ofrece "agregar" -- ofrece el
+enlace directo a la página del producto (`permalink`) para comprarlo normal por la tienda en
+línea. El widget (`renderProductsCards`/`renderProductsTable` en `public/widget/chatbot.js`)
+muestra un link "Ver en la tienda" en ese caso en vez de los controles de cantidad.
 
-```json
-{
-  "sku": "7702870002636",
-  "stockByBranch": [{ "branch": "PRINCIPAL", "quantity": 12, "price": 45000 }],
-  "onlineStore": { "visibleOnline": false, "inStockOnline": false }
-}
-```
+`ChatbotService.gatherFacts()` hace, en orden:
+1. `WoocommerceCatalogService.searchByTerms()` -- búsqueda primaria, multi-término (con
+   expansión de sinónimos/categoría, igual que antes), un solo `findMany`.
+2. Por cada resultado, un cruce por SKU exacto contra Distrimonaco
+   (`InventoryService.findBySku`) para completar lo que WooCommerce no tiene.
+3. Si hace falta mostrar alternativas, un solo lote (`WoocommerceCatalogService.findBySkus`)
+   completa precio/estado de WooCommerce de TODAS las alternativas a la vez -- mismo
+   principio de nunca mezclar el precio de Distrimonaco con el de WooCommerce para un mismo
+   producto.
 
-- Si el SKU todavía no está en la copia local de WooCommerce (el snippet de disponibilidad
-  no lo ha subido -- puede ser normal si nunca estuvo agotado/oculto, ver la nota "solo sube
-  lo que está agotado/oculto" en `docs/integracion-inventario-wordpress.md` sección 3.1),
-  el campo simplemente no aparece. El chatbot nunca inventa este dato.
-- El prompt `CHAT_REPLY_COMPOSITION` (editable en `Guía` → "Prompts y reglas de IA") ya sabe
-  interpretar este campo: si hay stock físico pero `visibleOnline`/`inStockOnline` es
-  `false`, la respuesta lo aclara explícitamente en vez de decir sin más que "está
-  disponible".
-
-No requiere ningún cambio adicional del lado de WordPress -- reutiliza exactamente los
-mismos datos que ya sube el snippet de disponibilidad.
+**Frescura del precio:** el snippet de disponibilidad sube el catálogo completo (con precio)
+**una vez al día**, de madrugada -- un cambio de precio puro (sin afectar stock/visibilidad)
+puede tardar hasta 24h en reflejarse. Si el producto entra/sale de stock o se oculta, se
+refresca en minutos igual que siempre (las tareas de 15/5 min ya re-suben el estado real, y
+ahora también el precio). Consecuencia aceptada, documentada -- si hace falta más frescura,
+es cambiar el intervalo de un `wp_schedule_event`.
 
 ---
 

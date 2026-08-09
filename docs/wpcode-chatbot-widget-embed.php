@@ -2,10 +2,12 @@
 /**
  * EcoFarma - Chatbot de inventario (embeber el widget en el sitio)
  *
- * WPCode snippet -- todavia NO existe en produccion (falta pegarlo en
- * https://ecofarma.co/wp-admin/admin.php?page=wpcode-snippet-manager y asignarle
- * snippet_id). Tipo: Fragmento de codigo de PHP. Ubicacion: "Ejecutar en todas partes"
- * (Auto insertar).
+ * WPCode snippet -- EN PRODUCCION desde 2026-08-09: post_id=338459, Activo, "Ejecutar en
+ * todas partes" (Auto insertar). Confirmado con espera pasiva real: el <script> aparece en
+ * el HTML de ecofarma.co, el FAB del widget se ve y abre, y una peticion real a
+ * POST /chatbot/message desde el origen https://ecofarma.co responde 201 con una respuesta
+ * real de Gemini -- confirma tambien que el CORS abierto del backend (ver src/main.ts)
+ * funciona correctamente cross-origin.
  *
  * A diferencia de docs/wpcode-inventario-disponibilidad.php, este snippet NO tiene
  * cron ni logica de negocio -- solo imprime un <script> en el footer de cada pagina.
@@ -21,9 +23,8 @@
  * backend, y el mismo archivo ya sirve tanto la consola de prueba interna del panel
  * como este embed publico.
  *
- * Ver docs/integracion-chatbot-wordpress.md para el estado completo de esta
- * integracion (snippet_id una vez pegado en produccion, como probarlo, que hace el
- * widget del lado del cliente).
+ * Ver docs/integracion-chatbot-wordpress.md seccion 2.1 para el estado completo de esta
+ * integracion.
  */
 
 if (!function_exists('ecofarma_chatbot_widget_embed')) {

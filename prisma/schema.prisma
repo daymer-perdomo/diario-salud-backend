@@ -710,6 +710,13 @@ model WoocommerceCatalogItem {
   stockStatus       String
   catalogVisibility String
   manageStock       Boolean
+  /// Precio efectivo en WooCommerce (get_price(), ya con oferta aplicada si
+  /// la hay) -- agregado 2026-08-09 cuando WooCommerce paso a ser la fuente
+  /// PRIMARIA de precio del chatbot (antes solo se usaba el precio de
+  /// Distrimonaco). Nullable: filas sincronizadas antes de este cambio no lo
+  /// tienen todavia, y un producto variable sin variacion resuelta puede no
+  /// tener precio en WooCommerce.
+  price             Decimal? @db.Decimal(10, 2)
   syncedAt          DateTime @updatedAt
 
   @@index([sku])

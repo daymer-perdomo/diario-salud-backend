@@ -54,14 +54,22 @@ paginación) y sección 8 como alternativa manual si el snippet alguna vez está
 El chatbot de inventario (`src/chatbot/`, widget en `public/widget/chatbot.js`) se embebe en
 ecofarma.co con un snippet propio (distinto de los dos de arriba) que solo imprime un
 `<script>` en el footer -- sin cron, sin lógica de negocio, el más simple y de menor riesgo
-de las tres integraciones. Además del catálogo interno (Distrimonaco), el chatbot ahora
-también consulta `WoocommerceCatalogItem` (la misma copia que alimenta la sección de
-Disponibilidad de arriba) para saber si un producto con stock físico está realmente visible/
-disponible en la tienda en línea. El modelo y la API key de Gemini (compartidos con el resto
-del pipeline de IA) son configurables desde el panel en `Chatbot` → "Configuración del modelo
-de IA" (`GET`/`PATCH /ai-settings`) en vez de fijos en variables de entorno; la personalidad/
-tono sigue siendo el prompt `CHAT_REPLY_COMPOSITION` de siempre, editable en `Guía`. Antes de
-tocar esto, lee
+de las tres integraciones. Snippet: `docs/wpcode-chatbot-widget-embed.php` (post_id=338459,
+en producción y confirmado funcionando desde 2026-08-09).
+
+**2026-08-09, pedido explícito del usuario: WooCommerce (`WoocommerceCatalogItem`, ~42,000
+productos) es la fuente PRIMARIA de búsqueda por nombre, precio y disponibilidad del
+chatbot** -- antes buscaba primero en el catálogo interno de Distrimonaco (~7,000) y solo
+cruzaba WooCommerce como verificación secundaria; eso se invirtió. Distrimonaco pasó a ser el
+enriquecimiento secundario (stock físico por sucursal, si requiere receta, alternativas por
+principio activo) solo cuando el mismo SKU también existe ahí. Consecuencia real aceptada:
+como el carrito del chat (`ChatCartService`) solo puede armar pedidos con productos que
+existen en Distrimonaco (el personal despacha de inventario físico real), la mayoría de lo
+que WooCommerce ahora expone no se puede agregar al carrito del chat -- en esos casos el
+chatbot ofrece el link directo a la tienda (`permalink`) en vez de "Agregar" (ver `canOrder`
+en `ChatbotService`). El modelo y la API key de Gemini (compartidos con el resto del pipeline
+de IA) son configurables desde el panel en `Chatbot` → "Configuración del modelo de IA"
+(`GET`/`PATCH /ai-settings`) en vez de fijos en variables de entorno; la personalidad/tono
+sigue siendo el prompt `CHAT_REPLY_COMPOSITION` de siempre, editable en `Guía`. Antes de tocar
+esto, lee
 [`docs/integracion-chatbot-wordpress.md`](docs/integracion-chatbot-wordpress.md) completo.
-Snippet: `docs/wpcode-chatbot-widget-embed.php` (2026-08-09: preparado, todavía sin pegar en
-WPCode de producción).

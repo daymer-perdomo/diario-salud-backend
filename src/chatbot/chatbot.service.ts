@@ -29,21 +29,39 @@ const CATEGORY_SEARCH_DISCLAIMER =
   '\n\nEsto no es una formulación médica -- son los productos que tenemos disponibles para esa categoría. ' +
   'Si necesitas una formulación o recomendación de tratamiento, consulta a tu médico.';
 
+/// 2026-08-09: WooCommerce (~42,000 productos, ecofarma.co real) paso a ser
+/// la fuente PRIMARIA de nombre/precio/disponibilidad del chatbot -- pedido
+/// explicito del usuario, antes buscaba primero en Distrimonaco (~7,000) y
+/// solo cruzaba WooCommerce como verificacion secundaria. Distrimonaco ahora
+/// es el enriquecimiento: si el SKU tambien existe ahi (activo, no oculto),
+/// se completa con stock fisico por sucursal, si requiere receta y
+/// alternativas por principio activo -- ninguno de esos tres datos existe en
+/// WooCommerce. Ver `canOrder`: la mayoria de WooCommerce no tiene
+/// contraparte en Distrimonaco, y el carrito del chat solo puede armar un
+/// pedido con lo que el personal puede despachar de inventario fisico real
+/// (ver ChatCartService.addItem).
 interface ProductFact {
   sku: string;
   name: string;
-  labName: string | null;
-  requiresPrescription: boolean;
+  price: number | null;
+  permalink: string;
   imageUrl: string | null;
-  stockByBranch: Array<{ branch: string; quantity: number; price: number }>;
-  /// Estado en la tienda WooCommerce real (ecofarma.co), cruzado por SKU
-  /// contra la copia que sube el snippet de disponibilidad cada 15 min
-  /// (ver WoocommerceCatalogService.findAvailabilityBySkus). `undefined`
-  /// si ese SKU todavia no aparece en esa copia -- nunca se inventa el
-  /// dato. Puede diferir de stockByBranch: un producto con stock fisico
-  /// puede estar oculto/agotado en la tienda en linea (marcado desde el
-  /// panel o directo en WordPress) y viceversa.
-  onlineStore?: { visibleOnline: boolean; inStockOnline: boolean };
+  visibleOnline: boolean;
+  inStockOnline: boolean;
+  canOrder: boolean;
+  /// null = el SKU no esta en el catalogo interno de Distrimonaco, asi que
+  /// no se pudo confirmar -- el prompt debe pedir que se confirme en vez de
+  /// asumir que no requiere receta.
+  requiresPrescription: boolean | null;
+  labName: string | null;
+  stockByBranch: Array<{ branch: string; quantity: number }>;
+  alternatives: Array<{
+    sku: string;
+    name: string;
+    price: number | null;
+    requiresPrescription: boolean;
+    stockByBranch: Array<{ branch: string; quantity: number }>;
+  }>;
 }
 
 export interface ProductTableRow {
@@ -52,8 +70,13 @@ export interface ProductTableRow {
   labName: string | null;
   price: number | null;
   stock: number;
-  requiresPrescription: boolean;
+  requiresPrescription: boolean | null;
   imageUrl: string;
+  permalink: string;
+  /// false = no se puede agregar al carrito del chat (sin contraparte en
+  /// Distrimonaco) -- el widget debe ofrecer el link a `permalink` en vez de
+  /// los controles de cantidad/Agregar.
+  canOrder: boolean;
 }
 
 /// Orquesta el pipeline de 3 pasos del plan (kind-giggling-cerf.md):
@@ -143,22 +166,57 @@ export class ChatbotService {
     const term = intent.productQuery?.trim();
     if (!term) return { query: null, products: [], wasCategoryMatch: false };
 
-    // isCategoryQuery del LLM tambien limita a 3 (ademas del limite que ya
-    // aplica InventoryService cuando calza por el diccionario de
-    // sinonimos) -- mismo pedido del usuario 2026-07-29 de nunca mostrar
-    // mas de 3 en una busqueda por categoria/sintoma, sin importar por
-    // cual de las dos señales se detecto.
-    const { products, wasCategoryMatch } = await this.inventory.searchProducts(term, intent.isCategoryQuery ? 3 : 5);
+    // La expansion de sinonimos/categoria (ej. "hongos" -> "clotrimazol")
+    // sigue viviendo en InventoryService -- es independiente de que tabla se
+    // busque. isCategoryQuery del LLM y wasCategoryMatch del diccionario son
+    // dos señales, cualquiera basta para capar a 3 (pedido explicito del
+    // usuario 2026-07-29).
+    const relatedTerms = await this.inventory.resolveSynonyms(term);
+    const wasCategoryMatch = relatedTerms.length > 0;
+    const take = intent.isCategoryQuery || wasCategoryMatch ? 3 : 5;
+
+    // Busqueda PRIMARIA contra WooCommerce (~42,000 productos reales de la
+    // tienda) -- ver comentario de ProductFact.
+    const matches = await this.woocommerce.searchByTerms([term, ...relatedTerms], take);
     const branchFilter = intent.branchQuery?.trim().toLowerCase();
 
-    // Un solo lookup por lote (nunca uno por producto) contra la copia
-    // local del catalogo de WooCommerce -- ver comentario de
-    // ProductFact.onlineStore.
-    const onlineAvailability = await this.woocommerce.findAvailabilityBySkus(products.map((p) => p.sku));
+    // Cruce por SKU exacto contra Distrimonaco, un lookup por match (a lo
+    // sumo `take` <= 5, mismo orden de magnitud que antes). isActive/
+    // hiddenFromCatalog se revisan a mano: findBySku no los filtra (a
+    // diferencia de InventoryService.searchProducts, pensado para busqueda
+    // directa, no para listar).
+    const enriched = await Promise.all(
+      matches.map(async (match) => {
+        const raw = await this.inventory.findBySku(match.sku);
+        const crossRef = raw && raw.isActive && !raw.hiddenFromCatalog ? raw : null;
+        return { match, crossRef };
+      }),
+    );
 
-    const products_ = await Promise.all(
-      products.map(async (product) => {
-        let stockRows = product.stock;
+    // Alternativas necesitan activeIngredient (solo Distrimonaco lo tiene),
+    // asi que solo se calculan cuando hay cruce -- y solo si hace falta
+    // (pedido explicito de alternativas, o el producto no esta disponible
+    // para comprar en linea ahora mismo).
+    const altsByProduct = await Promise.all(
+      enriched.map(async ({ match, crossRef }) => {
+        if (!crossRef) return [];
+        const needsAlternatives = intent.intent === 'ALTERNATIVES' || match.stockStatus !== 'instock';
+        if (!needsAlternatives) return [];
+        return this.inventory.findAlternatives(crossRef.id, 3);
+      }),
+    );
+
+    // Un solo lote (nunca una consulta por alternativa) para completar
+    // precio/estado real de WooCommerce de TODAS las alternativas de TODOS
+    // los productos a la vez -- mismo precio unico de verdad que el
+    // producto principal, nunca el de Distrimonaco.
+    const altSkus = altsByProduct.flat().map((a) => a.sku);
+    const altsOnline = await this.woocommerce.findBySkus(altSkus);
+
+    const products_ = enriched.map(({ match, crossRef }, idx) => {
+      let stockByBranch: Array<{ branch: string; quantity: number }> = [];
+      if (crossRef) {
+        let stockRows = crossRef.stock;
         if (branchFilter) {
           const filtered = stockRows.filter((s) => s.branch.name.toLowerCase().includes(branchFilter));
           // Si el nombre de sucursal que dijo el cliente no matchea nada
@@ -166,41 +224,42 @@ export class ChatbotService {
           // sucursales que fingir que no hay stock en ninguna.
           if (filtered.length > 0) stockRows = filtered;
         }
+        stockByBranch = stockRows.map((s) => ({ branch: s.branch.name, quantity: s.quantity }));
+      }
 
-        const totalStock = product.stock.reduce((sum, s) => sum + s.quantity, 0);
-        const needsAlternatives = intent.intent === 'ALTERNATIVES' || totalStock === 0;
-        const alternatives = needsAlternatives ? await this.inventory.findAlternatives(product.id, 3) : [];
-        const online = onlineAvailability.get(product.sku);
-
-        return {
-          sku: product.sku,
-          name: product.name,
-          labName: product.labName,
-          activeIngredient: product.activeIngredient,
-          category: product.category,
-          requiresPrescription: product.requiresPrescription,
-          imageUrl: product.imageUrl,
-          stockByBranch: stockRows.map((s) => ({ branch: s.branch.name, quantity: s.quantity, price: Number(s.price) })),
-          ...(online ? { onlineStore: { visibleOnline: online.visibleOnline, inStockOnline: online.inStockOnline } } : {}),
-          alternatives: alternatives.map((a) => ({
+      return {
+        sku: match.sku,
+        name: match.name,
+        price: match.price,
+        permalink: match.permalink,
+        imageUrl: match.image,
+        visibleOnline: match.catalogVisibility === 'visible',
+        inStockOnline: match.stockStatus === 'instock',
+        canOrder: !!crossRef,
+        requiresPrescription: crossRef ? crossRef.requiresPrescription : null,
+        labName: crossRef?.labName ?? null,
+        stockByBranch,
+        alternatives: altsByProduct[idx].map((a) => {
+          const online = altsOnline.get(a.sku);
+          return {
             sku: a.sku,
             name: a.name,
+            price: online?.price ?? null,
             requiresPrescription: a.requiresPrescription,
-            stockByBranch: a.stock.map((s) => ({ branch: s.branch.name, quantity: s.quantity, price: Number(s.price) })),
-          })),
-        };
-      }),
-    );
+            stockByBranch: a.stock.map((s) => ({ branch: s.branch.name, quantity: s.quantity })),
+          };
+        }),
+      };
+    });
 
     return { query: term, branchQuery: intent.branchQuery, products: products_, wasCategoryMatch };
   }
 
-  /// Toma la PRIMERA fila de stockByBranch para precio/cantidad -- hoy
-  /// solo existe una sucursal por producto (ver DistrimonacoSyncService),
-  /// asi que esto es exacto. El dia que haya mas de una sucursal real por
-  /// producto, esta funcion necesita una columna de sucursal ademas --
-  /// deliberadamente no se construye esa UI todavia sin datos reales para
-  /// probarla.
+  /// El precio siempre sale de WooCommerce (p.price, fuente unica -- ver
+  /// comentario de ProductFact), nunca de Distrimonaco. `stock` es la
+  /// cantidad fisica total (Distrimonaco) que limita cuanto se puede pedir
+  /// por el chat -- 0 si no hay cruce, pero eso no importa para la UI
+  /// porque `canOrder` ya la desactiva por completo en ese caso.
   private buildProductsTable(products: ProductFact[]): ProductTableRow[] {
     return products.map((p) => {
       const totalStock = p.stockByBranch.reduce((sum, s) => sum + s.quantity, 0);
@@ -208,10 +267,12 @@ export class ChatbotService {
         sku: p.sku,
         name: p.name,
         labName: p.labName,
-        price: p.stockByBranch[0]?.price ?? null,
+        price: p.price,
         stock: totalStock,
         requiresPrescription: p.requiresPrescription,
         imageUrl: p.imageUrl ?? DEFAULT_PRODUCT_IMAGE_URL,
+        permalink: p.permalink,
+        canOrder: p.canOrder,
       };
     });
   }

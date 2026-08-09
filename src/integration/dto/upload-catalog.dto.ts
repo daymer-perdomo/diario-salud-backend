@@ -5,6 +5,7 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Min,
@@ -38,6 +39,12 @@ export class CatalogItemDto {
 
   @IsBoolean()
   manageStock!: boolean;
+
+  /// Precio efectivo (get_price() de WooCommerce) -- opcional porque un
+  /// producto variable sin variacion resuelta puede no reportarlo.
+  @IsOptional()
+  @IsNumber()
+  price?: number | null;
 }
 
 /// Una tanda del catalogo de WooCommerce. El plugin lo sube por paginas

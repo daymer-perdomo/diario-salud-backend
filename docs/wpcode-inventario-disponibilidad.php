@@ -11,6 +11,13 @@
  * aca primero, se valida con `php -l`, y despues se copia a WPCode de produccion
  * (post_id=338454) regenerando el cache con wpcode()->cache->cache_all_loaded_snippets().
  *
+ * FIX 2026-08-09: se agrego 'price' al payload (ver ecofarma_disponibilidad_payload_producto)
+ * porque el chatbot paso a usar WooCommerce como fuente PRIMARIA de precio -- aplicado en
+ * produccion el mismo dia (wp_update_post + regeneracion de cache), confirmado con
+ * post_status=publish y el codigo con 'price' presente en la copia cacheada real de WPCode,
+ * no solo en el post. Sitio verificado sano despues del cambio (assets 200, POST real a
+ * /chatbot/message desde el widget en vivo respondio 201).
+ *
  * FIX 2026-08-08 (segunda vuelta): rest_do_request() exige current_user_can(
  * 'manage_woocommerce'). El cron real del sistema (crontab -> php -q wp-cron.php) corre
  * sin usuario autenticado -- el PUT fallaba en silencio (is_error true, reportado como
@@ -103,10 +110,19 @@ add_action('init', 'ecofarma_disponibilidad_registrar_eventos');
 
 /// Arma el payload de un producto exactamente como lo espera CatalogItemDto
 /// del backend (ver src/integration/dto/upload-catalog.dto.ts).
+///
+/// FIX 2026-08-09: se agrega 'price' -- el chatbot paso a usar WooCommerce
+/// como fuente PRIMARIA de precio (antes usaba el precio de Distrimonaco).
+/// get_price() devuelve el precio EFECTIVO (con oferta aplicada si la hay),
+/// igual que lo que el cliente ve en la tienda -- nunca get_regular_price().
+/// Puede venir '' (string vacio) en un producto variable sin variacion
+/// resuelta; en ese caso se manda null en vez de forzar un (float) de un
+/// string vacio (que daria 0.0, un precio falso).
 if (!function_exists('ecofarma_disponibilidad_payload_producto')) {
 function ecofarma_disponibilidad_payload_producto($product) {
     $imagen_id = $product->get_image_id();
     $imagen_url = $imagen_id ? wp_get_attachment_image_url($imagen_id, 'full') : null;
+    $precio = $product->get_price();
     return array(
         'id'                => $product->get_id(),
         'sku'               => (string) $product->get_sku(),
@@ -116,6 +132,7 @@ function ecofarma_disponibilidad_payload_producto($product) {
         'stockStatus'       => (string) $product->get_stock_status(),
         'catalogVisibility' => (string) $product->get_catalog_visibility(),
         'manageStock'       => (bool) $product->get_manage_stock(),
+        'price'             => ($precio !== '' && $precio !== null) ? (float) $precio : null,
     );
 }
 }

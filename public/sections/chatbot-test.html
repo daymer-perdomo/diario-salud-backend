@@ -101,14 +101,16 @@
                           <div style="font-weight:600;" x-text="p.name"></div>
                           <div x-show="p.labName" class="muted" style="font-size:10.5px;" x-text="p.labName"></div>
                           <div x-show="p.requiresPrescription" style="font-size:10px;color:#b45309;">Requiere receta</div>
+                          <div x-show="p.requiresPrescription === null" style="font-size:10px;color:#b45309;">¿Requiere receta? Confirmar</div>
                         </td>
                         <td style="vertical-align:top;" x-text="formatPrice(p.price)"></td>
-                        <td style="vertical-align:top;" x-text="p.stock"></td>
+                        <td style="vertical-align:top;" x-text="p.canOrder ? p.stock : '--'"></td>
                         <td style="vertical-align:top;">
-                          <div class="flex items-center gap-1" x-show="p.stock > 0">
+                          <div class="flex items-center gap-1" x-show="p.canOrder && p.stock > 0">
                             <input type="number" class="input" style="width:52px;padding:2px 4px;" min="1" :max="p.stock" x-model.number="p._qty" />
                             <button class="btn btn-primary btn-sm" @click="addToChatbotTestCart(p, p._qty || 1)">Agregar</button>
                           </div>
+                          <a x-show="!(p.canOrder && p.stock > 0) && p.permalink" :href="p.permalink" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:600;">Ver en la tienda</a>
                         </td>
                       </tr>
                     </template>

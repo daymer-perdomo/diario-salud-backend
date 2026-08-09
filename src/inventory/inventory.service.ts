@@ -184,7 +184,7 @@ export class InventoryService {
   /// hongos" solo encuentra un producto que tenga la palabra "hongos"
   /// literal en el nombre, ignorando decenas de antimicoticos reales
   /// (bug real reportado por el usuario 2026-07-28).
-  private async resolveSynonyms(term: string): Promise<string[]> {
+  async resolveSynonyms(term: string): Promise<string[]> {
     const normalized = term.toLowerCase();
     const synonyms = await this.prisma.searchSynonym.findMany();
     const matched = synonyms.filter((s) => normalized.includes(s.term));
