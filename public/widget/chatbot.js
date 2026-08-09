@@ -69,28 +69,19 @@
       background: ${BRAND_BLUE}; color: #fff; border: none; border-radius: 20px; padding: 0 16px; cursor: pointer; font-size: 13px;
     }
     .composer button:disabled { opacity: .5; cursor: default; }
-    .products-table { align-self: stretch; width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
-    .products-table th, .products-table td { padding: 7px 8px; text-align: left; border-bottom: 1px solid #eef2f6; vertical-align: top; }
-    .products-table th { background: #f1f5f9; color: #334155; font-weight: 600; font-size: 11px; }
-    .products-table tr:last-child td { border-bottom: none; }
-    .products-table col.col-image { width: 40px; }
-    .products-table col.col-name { width: 42%; }
-    .products-table col.col-price { width: 20%; }
-    .products-table col.col-stock { width: 12%; }
-    .products-table col.col-actions { width: 22%; }
-    .products-table .thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 6px; background: #f1f5f9; display: block; }
-    .products-table .name { font-weight: 600; word-wrap: break-word; }
-    .products-table .lab { color: #64748b; font-size: 10.5px; margin-top: 2px; }
-    .products-table .rx { color: #b45309; font-size: 10px; margin-top: 2px; }
     .qty-input { width: 42px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 4px; font-size: 12px; }
     .add-btn { background: ${BRAND_BLUE}; color: #fff; border: none; border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; margin-top: 4px; }
     .add-btn:disabled { opacity: .5; cursor: default; }
     .store-link { color: ${BRAND_BLUE}; font-size: 11px; font-weight: 600; text-decoration: underline; white-space: nowrap; margin-top: 4px; display: inline-block; }
     .row-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-    .products-cards { align-self: stretch; display: flex; gap: 10px; flex-wrap: wrap; }
+    /// Carrusel horizontal SIEMPRE (sin importar cuantos resultados haya) --
+    /// pedido explicito del usuario 2026-08-09, inspirado en la referencia
+    /// del chatbot "Sommer" de Farmatodo. Reemplaza el diseno anterior
+    /// (tarjetas para 1-2, tabla para 3+).
+    .products-carousel { align-self: stretch; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
     .product-card {
-      flex: 1 1 45%; min-width: 130px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
-      overflow: hidden; display: flex; flex-direction: column;
+      flex: 0 0 132px; width: 132px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column; scroll-snap-align: start;
     }
     .product-card .thumb { width: 100%; height: 96px; object-fit: cover; background: #f1f5f9; display: block; }
     .product-card-body { padding: 10px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
@@ -242,10 +233,19 @@
     }
 
     var greeted = false;
+    // Estructura tipo lista de capacidades + disclaimer, inspirada en la
+    // referencia que compartio el usuario (chatbot "Sommer" de Farmatodo,
+    // 2026-08-09) -- mismo patron, redactado en la voz de EcoFarma.
+    var GREETING_TEXT =
+      '¡Hola! Soy el asistente virtual de EcoFarma. Puedo ayudarte a:\n' +
+      '• Buscar productos específicos\n' +
+      '• Consultar disponibilidad y precio\n' +
+      '• Decirte en qué sucursal encontrar un producto\n\n' +
+      'Soy un asistente virtual y puedo cometer errores -- para cualquier consulta sobre tu salud, consulta a un profesional.';
     function ensureGreeting() {
       if (greeted) return;
       greeted = true;
-      appendMessage('¡Hola! Soy el asistente virtual de EcoFarma. ¿En qué te puedo ayudar hoy?', 'bot');
+      appendMessage(GREETING_TEXT, 'bot');
       renderMenu();
     }
 
@@ -505,12 +505,13 @@
       }
     }
 
-    // 1-2 productos -> tarjetas con imagen grande (pedido explicito del
-    // usuario, con captura de referencia); 3+ -> renderProductsTable, una
-    // fila por producto se ve mas compacta que 3+ tarjetas apiladas.
-    function renderProductsCards(products) {
+    // Carrusel horizontal SIEMPRE, sin importar cuantos resultados haya --
+    // reemplaza el diseno anterior (tarjetas para 1-2, tabla para 3+),
+    // pedido explicito del usuario 2026-08-09 inspirado en la referencia
+    // del chatbot "Sommer" de Farmatodo (misma logica, estilos de EcoFarma).
+    function renderProductsCarousel(products) {
       var wrap = document.createElement('div');
-      wrap.className = 'products-cards';
+      wrap.className = 'products-carousel';
 
       products.forEach(function (p) {
         var card = document.createElement('div');
@@ -579,93 +580,6 @@
       return wrap;
     }
 
-    // Laboratorio va como subtitulo del nombre (no columna aparte) --
-    // con 5 columnas en un panel angosto el nombre del producto quedaba
-    // aplastado a una palabra por linea (feedback real del usuario).
-    function renderProductsTable(products) {
-      var table = document.createElement('table');
-      table.className = 'products-table';
-
-      var colgroup = document.createElement('colgroup');
-      colgroup.innerHTML =
-        '<col class="col-image" /><col class="col-name" /><col class="col-price" /><col class="col-stock" /><col class="col-actions" />';
-      table.appendChild(colgroup);
-
-      var thead = document.createElement('thead');
-      thead.innerHTML = '<tr><th></th><th>Producto</th><th>Precio</th><th>Stock</th><th></th></tr>';
-      table.appendChild(thead);
-
-      var tbody = document.createElement('tbody');
-      products.forEach(function (p) {
-        var tr = document.createElement('tr');
-
-        var imageTd = document.createElement('td');
-        var thumb = document.createElement('img');
-        thumb.className = 'thumb';
-        thumb.src = p.imageUrl;
-        thumb.alt = '';
-        thumb.loading = 'lazy';
-        imageTd.appendChild(thumb);
-        tr.appendChild(imageTd);
-
-        var nameTd = document.createElement('td');
-        nameTd.innerHTML =
-          '<div class="name">' + escapeHtml(p.name) + '</div>' +
-          (p.labName ? '<div class="lab">' + escapeHtml(p.labName) + '</div>' : '') +
-          (p.requiresPrescription ? '<div class="rx">Requiere receta</div>' : '');
-        tr.appendChild(nameTd);
-
-        var priceTd = document.createElement('td');
-        priceTd.textContent = formatPrice(p.price);
-        tr.appendChild(priceTd);
-
-        var stockTd = document.createElement('td');
-        // Igual que en renderProductsCards: el stock fisico solo tiene
-        // sentido si se puede pedir por el chat (canOrder).
-        stockTd.textContent = p.canOrder ? p.stock : '--';
-        tr.appendChild(stockTd);
-
-        var actionsTd = document.createElement('td');
-        if (p.canOrder && p.stock > 0) {
-          var qtyInput = document.createElement('input');
-          qtyInput.type = 'number';
-          qtyInput.className = 'qty-input';
-          qtyInput.min = '1';
-          qtyInput.max = String(p.stock);
-          qtyInput.value = '1';
-
-          var addBtn = document.createElement('button');
-          addBtn.type = 'button';
-          addBtn.className = 'add-btn';
-          addBtn.textContent = 'Agregar';
-          addBtn.addEventListener('click', function () {
-            var qty = parseInt(qtyInput.value, 10);
-            if (!qty || qty < 1) qty = 1;
-            addToCart(p.sku, qty, p.name);
-          });
-
-          var actionsWrap = document.createElement('div');
-          actionsWrap.className = 'row-actions';
-          actionsWrap.appendChild(qtyInput);
-          actionsWrap.appendChild(addBtn);
-          actionsTd.appendChild(actionsWrap);
-        } else if (p.permalink) {
-          var storeLink = document.createElement('a');
-          storeLink.className = 'store-link';
-          storeLink.href = p.permalink;
-          storeLink.target = '_blank';
-          storeLink.rel = 'noopener noreferrer';
-          storeLink.textContent = 'Ver en la tienda';
-          actionsTd.appendChild(storeLink);
-        }
-        tr.appendChild(actionsTd);
-
-        tbody.appendChild(tr);
-      });
-      table.appendChild(tbody);
-      return table;
-    }
-
     async function sendMessage() {
       var text = inputEl.value.trim();
       if (!text) return;
@@ -703,9 +617,7 @@
         } catch (e) {}
         appendMessage(body.reply, 'bot');
         if (Array.isArray(body.products) && body.products.length > 0) {
-          var productsEl =
-            body.products.length <= 2 ? renderProductsCards(body.products) : renderProductsTable(body.products);
-          messagesEl.appendChild(productsEl);
+          messagesEl.appendChild(renderProductsCarousel(body.products));
           messagesEl.scrollTop = messagesEl.scrollHeight;
         }
         if (isNewConversation) refreshCart();
