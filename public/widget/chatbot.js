@@ -372,10 +372,16 @@
     // junto con Pedidos/OrderRequest -- "Agregar producto" ahora agrega de
     // verdad al carrito nativo de WooCommerce (ver addToWooCommerceCart),
     // no hay una solicitud interna cuyo estado consultar.
+    //
+    // "Nueva conversación" (2026-08-09, 6ta vuelta, pedido explicito del
+    // usuario): borra el historial persistido -- sin esto, con la
+    // conversacion sobreviviendo un F5 (ver HISTORY_KEY), el cliente no
+    // tenia forma de empezar de cero salvo borrando el localStorage a mano.
     var MENU_OPTIONS = [
       { label: 'Buscar un producto', action: 'search' },
       { label: 'Hablar con un farmacéutico', action: 'pharmacist', disabled: true },
       { label: 'Otra pregunta', action: 'other' },
+      { label: 'Nueva conversación', action: 'reset' },
     ];
 
     // Solo puede haber un menu abierto a la vez -- pedido explicito del
@@ -411,6 +417,13 @@
     }
 
     function handleMenuOption(opt) {
+      // "Nueva conversación" no tiene sentido ecoar como si fuera una
+      // pregunta del cliente ni quedar grabada en el historial que esta a
+      // punto de borrarse -- se maneja aparte, antes del eco generico.
+      if (opt.action === 'reset') {
+        resetConversation();
+        return;
+      }
       appendMessage(opt.label, 'user', true);
       if (opt.action === 'search') {
         appendMessage('Cuéntame qué producto buscas (nombre, principio activo, o para qué lo necesitas) y reviso disponibilidad y precio.', 'bot', true);
@@ -426,6 +439,21 @@
         appendMessage('Claro, cuéntame en qué te ayudo.', 'bot', true);
         inputEl.focus();
       }
+    }
+
+    // Borra la conversacion actual (memoria + localStorage) y arranca una
+    // nueva desde cero, con el saludo inicial de siempre.
+    function resetConversation() {
+      conversationId = null;
+      history = [];
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(HISTORY_KEY);
+      } catch (e) {}
+      messagesEl.innerHTML = '';
+      activeMenuEl = null;
+      greeted = false;
+      ensureGreeting();
     }
 
     // ── Carrito nativo de WooCommerce ────────────────────────────────────
