@@ -58,7 +58,26 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; z-index: 999999;
     }
     .panel.hidden { display: none; }
+    /* Pantalla completa en movil -- pedido explicito del usuario 2026-08-09
+       (4ta vuelta): la tarjeta flotante de escritorio (440x560, con margenes)
+       se sentia recortada/poco profesional en telefonos, compitiendo por
+       espacio con el boton flotante del carrito del tema y la barra de
+       navegacion inferior del sitio. MOBILE_BREAKPOINT en el JS de mas abajo
+       debe coincidir con este valor -- positionAboveCart() deja de asignarle
+       un "bottom" inline al panel por debajo de ese ancho (un estilo inline
+       siempre le gana a esta media query, la pisaria si no se evita). env()
+       cubre el notch/home-indicator en iOS -- sin esto el header/composer
+       quedan pegados al borde real de la pantalla en vez del area segura. */
+    @media (max-width: 640px) {
+      .panel {
+        top: 0; right: 0; bottom: 0; left: 0; width: 100%; max-width: 100%; height: 100%; max-height: 100%;
+        border-radius: 0; box-shadow: none;
+      }
+    }
     .header { background: ${BRAND_BLUE}; color: #fff; padding: 14px 16px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    @media (max-width: 640px) {
+      .header { padding-top: calc(14px + env(safe-area-inset-top)); }
+    }
     .header img { height: 36px; width: 36px; object-fit: contain; border-radius: 50%; background: #fff; flex-shrink: 0; }
     .header small { display: block; font-weight: 400; opacity: .85; font-size: 11px; margin-top: 2px; }
     .messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #f8fafc; }
@@ -69,6 +88,9 @@
     .msg.notice { align-self: flex-start; background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
     .typing { align-self: flex-start; font-size: 12px; color: #64748b; padding: 0 12px; }
     .composer { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e2e8f0; background: #fff; }
+    @media (max-width: 640px) {
+      .composer { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+    }
     .composer input {
       flex: 1; border: 1px solid #cbd5e1; border-radius: 20px; padding: 8px 14px; font-size: 13px; outline: none;
     }
@@ -121,8 +143,14 @@
     .overlay { position: absolute; inset: 0; background: #fff; display: flex; flex-direction: column; z-index: 10; }
     .overlay.hidden { display: none; }
     .overlay-header { display: flex; align-items: center; justify-content: flex-end; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; }
+    @media (max-width: 640px) {
+      .overlay-header { padding-top: calc(10px + env(safe-area-inset-top)); }
+    }
     .overlay-close { background: none; border: none; font-size: 18px; line-height: 1; cursor: pointer; color: #334155; padding: 4px 8px; }
     .overlay-body { flex: 1; overflow-y: auto; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
+    @media (max-width: 640px) {
+      .overlay-body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+    }
     .overlay-img { width: 100%; height: 200px; object-fit: contain; background: #f1f5f9; border-radius: 10px; }
     .overlay-name { font-size: 16px; font-weight: 700; color: #1e293b; line-height: 1.3; }
     .overlay-lab { font-size: 12px; color: #64748b; }
@@ -198,6 +226,11 @@
     /// proposito chico (12px): el pedido explicito fue "dejalo mas cerca".
     var GAP_ABOVE_CART = 12;
     var FALLBACK_BOTTOM = 20;
+    // Debe coincidir con el @media (max-width: 640px) de STYLES -- por
+    // debajo de este ancho el panel pasa a pantalla completa via CSS, asi
+    // que NO le asignamos un `bottom` inline (un estilo inline siempre le
+    // gana a una regla de @media, lo pisaria y rompería el layout movil).
+    var MOBILE_BREAKPOINT = 640;
     function positionAboveCart() {
       var basket = document.querySelector('.xoo-wsc-basket');
       var bottom = FALLBACK_BOTTOM;
@@ -208,7 +241,11 @@
         }
       }
       fab.style.bottom = bottom + 'px';
-      panel.style.bottom = bottom + 76 + 'px';
+      if (window.innerWidth > MOBILE_BREAKPOINT) {
+        panel.style.bottom = bottom + 76 + 'px';
+      } else {
+        panel.style.bottom = '';
+      }
     }
     positionAboveCart();
     // El carrito lateral puede montarse despues de que corre este script
