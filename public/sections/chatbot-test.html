@@ -47,7 +47,7 @@
       <p class="section-title">Probar chatbot</p>
       <p class="section-sub">Esta pantalla llama al mismo endpoint público que usa el widget de WordPress (<span class="text-mono">POST /chatbot/message</span>, sin autenticación), con el mismo rate limiting -- es exactamente lo que vería un cliente final, no una vista con privilegios especiales.</p>
 
-      <div class="card" style="max-width:680px;">
+      <div class="card" style="max-width:680px;position:relative;">
         <div class="card-header">
           <span class="card-title">Conversación de prueba</span>
           <button class="btn btn-secondary btn-sm" @click="resetChatbotTestConversation()">
@@ -89,14 +89,14 @@
               <!-- Carrusel horizontal siempre (no tabla) -- refleja exactamente lo que
                    renderProductsCarousel() muestra en public/widget/chatbot.js, mismo
                    pedido del usuario 2026-08-09 (referencia: chatbot "Sommer" de Farmatodo).
-                   Tarjeta compacta por defecto (solo imagen+nombre+precio+"Ver producto") --
-                   el detalle (receta/stock/agregar o link a la tienda) se revela al click,
-                   2da vuelta del mismo pedido: la version con todo expandido se veia
-                   alargada. NOTA: el toggle usa x-show sobre un elemento cuyo "display" lo
-                   da la clase "flex" (no un style inline con display:flex) -- ver el bug
-                   documentado en docs/integracion-chatbot-wordpress.md seccion 7.1, donde
-                   Alpine perdia el display:flex al alternar visibilidad si venia en un
-                   string de style inline. -->
+                   Tarjeta compacta (solo imagen+nombre+precio+"Ver producto") -- el detalle
+                   completo (receta, "Agregar producto") vive en el overlay de abajo, ya no
+                   en un bloque inline dentro de la tarjeta (2da vuelta del mismo pedido).
+                   NOTA: usa la clase "flex" para el display (no un style inline con
+                   display:flex) -- ver el bug documentado en
+                   docs/integracion-chatbot-wordpress.md seccion 7.1, donde Alpine perdia el
+                   display:flex al alternar visibilidad si venia en un string de style
+                   inline. -->
               <div x-show="msg.products" class="flex" style="gap:10px;overflow-x:auto;padding-bottom:4px;">
                 <template x-for="p in (msg.products || [])" :key="p.sku">
                   <div style="flex:0 0 148px;width:148px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;">
@@ -105,17 +105,7 @@
                       <div style="font-size:12.5px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" x-text="p.name"></div>
                       <div x-show="p.labName" class="muted" style="font-size:10.5px;" x-text="p.labName"></div>
                       <div style="font-size:15px;font-weight:700;color:var(--brand,#12238f);margin-top:4px;" x-text="formatPrice(p.price)"></div>
-                      <button class="btn btn-secondary btn-sm" style="margin-top:6px;" @click="p._detailOpen = !p._detailOpen" x-text="p._detailOpen ? 'Ocultar' : 'Ver producto'"></button>
-                      <div x-show="p._detailOpen" class="flex" style="flex-direction:column;gap:3px;margin-top:6px;">
-                        <div x-show="p.requiresPrescription" style="font-size:10px;color:#b45309;">Requiere receta</div>
-                        <div x-show="p.requiresPrescription === null" style="font-size:10px;color:#b45309;">¿Requiere receta? Confirmar</div>
-                        <div x-show="p.canOrder" class="muted" style="font-size:10.5px;" x-text="'Stock: ' + p.stock"></div>
-                        <div class="flex items-center gap-1" style="margin-top:2px;" x-show="p.canOrder && p.stock > 0">
-                          <input type="number" class="input" style="width:44px;padding:2px 4px;" min="1" :max="p.stock" x-model.number="p._qty" />
-                          <button class="btn btn-primary btn-sm" style="flex:1;" @click="addToChatbotTestCart(p, p._qty || 1)">Agregar</button>
-                        </div>
-                        <a x-show="!(p.canOrder && p.stock > 0) && p.permalink" :href="p.permalink" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:600;">Ver en la tienda</a>
-                      </div>
+                      <button class="btn btn-secondary btn-sm" style="margin-top:6px;" @click="openChatbotTestDetail(p)">Ver producto</button>
                     </div>
                   </div>
                 </template>
@@ -125,48 +115,29 @@
           <div x-show="chatbotTestBusy" class="muted" style="align-self:flex-start;font-size:12px;">Escribiendo...</div>
         </div>
 
-        <div x-show="chatbotTestCart.items.length" style="border-top:1px solid var(--line);">
-          <div class="flex items-center justify-between" style="padding:8px 16px;">
-            <span>🛒 <span x-text="chatbotTestCart.items.length"></span> producto<span x-show="chatbotTestCart.items.length !== 1">s</span></span>
-            <strong x-text="formatPrice(chatbotTestCart.total)"></strong>
+        <!-- Overlay de detalle ("Ver producto"), mismo espiritu visual que
+             showProductOverlay() en public/widget/chatbot.js (referencia
+             Farmatodo). "Agregar producto" aca siempre abre el link de la
+             tienda -- esta consola nunca esta dentro de una pagina de
+             WordPress, asi que no existe window.wc_add_to_cart_params para
+             agregar de verdad al carrito nativo (eso solo se puede probar
+             en ecofarma.co en vivo). -->
+        <div x-show="chatbotTestDetailProduct" style="position:absolute;inset:0;background:#fff;display:flex;flex-direction:column;border-radius:inherit;overflow:hidden;z-index:10;">
+          <div class="flex items-center justify-end" style="padding:10px 12px;border-bottom:1px solid var(--line);flex-shrink:0;">
+            <button class="btn-ghost" style="font-size:18px;line-height:1;padding:4px 8px;" @click="closeChatbotTestDetail()" aria-label="Cerrar">✕</button>
           </div>
-          <div style="padding:0 16px 10px;">
-            <template x-for="item in chatbotTestCart.items" :key="item.sku">
-              <div class="flex items-center justify-between" style="font-size:12px;padding:3px 0;">
-                <span x-text="`${item.quantity}x ${item.name}`"></span>
-                <button class="btn-ghost" style="color:#b91c1c;padding:0 4px;" @click="removeFromChatbotTestCart(item.sku)">✕</button>
-              </div>
-            </template>
-
-            <template x-if="!chatbotTestCartFormOpen">
-              <button class="btn btn-primary btn-sm" style="width:100%;margin-top:6px;" @click="chatbotTestCartFormOpen = true">Enviar solicitud de pedido</button>
-            </template>
-            <template x-if="chatbotTestCartFormOpen">
-              <div class="flex flex-col gap-2" style="margin-top:6px;">
-                <input type="text" class="input" placeholder="Nombre del cliente" x-model="chatbotTestCartName" />
-                <input type="text" class="input" placeholder="Teléfono de contacto" x-model="chatbotTestCartPhone" />
-                <div class="flex gap-2">
-                  <button class="btn btn-primary btn-sm" style="flex:1;" @click="submitChatbotTestCart()" :disabled="chatbotTestCartBusy">
-                    <span x-show="chatbotTestCartBusy" class="spin"></span>
-                    Confirmar solicitud
-                  </button>
-                  <button class="btn btn-secondary btn-sm" @click="chatbotTestCartFormOpen = false">Cancelar</button>
-                </div>
-              </div>
-            </template>
-          </div>
-        </div>
-
-        <div x-show="chatbotTestReferenceFormVisible" class="inline-form" style="padding:8px 16px 0;">
-          <input
-            type="text"
-            class="input"
-            style="flex:1;"
-            placeholder="Número de referencia (ej. AEA5DCBE)"
-            x-model="chatbotTestReferenceInput"
-            @keydown.enter="submitChatbotTestReference()"
-          />
-          <button class="btn btn-primary btn-sm" @click="submitChatbotTestReference()" :disabled="!chatbotTestReferenceInput.trim()">Consultar</button>
+          <template x-if="chatbotTestDetailProduct">
+            <div style="flex:1;overflow-y:auto;padding:4px 20px 20px;display:flex;flex-direction:column;gap:10px;">
+              <img :src="chatbotTestDetailProduct.imageUrl" style="width:100%;height:200px;object-fit:contain;background:var(--panel-soft);border-radius:10px;" />
+              <div style="font-size:16px;font-weight:700;color:#1e293b;line-height:1.3;" x-text="chatbotTestDetailProduct.name"></div>
+              <div x-show="chatbotTestDetailProduct.labName" class="muted" style="font-size:12px;" x-text="chatbotTestDetailProduct.labName"></div>
+              <div style="font-size:22px;font-weight:800;color:var(--brand,#12238f);" x-text="formatPrice(chatbotTestDetailProduct.price)"></div>
+              <div x-show="chatbotTestDetailProduct.requiresPrescription === true" style="font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;">Este producto requiere fórmula médica.</div>
+              <div x-show="chatbotTestDetailProduct.requiresPrescription === null" style="font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;">¿Requiere receta? Confírmalo en sucursal.</div>
+              <button class="btn btn-primary" style="width:100%;padding:13px;font-size:14px;font-weight:600;margin-top:6px;" @click="addChatbotTestProductToCart(chatbotTestDetailProduct)">Agregar producto</button>
+              <a x-show="chatbotTestDetailProduct.permalink" :href="chatbotTestDetailProduct.permalink" target="_blank" rel="noopener noreferrer" style="text-align:center;font-size:12.5px;font-weight:600;">Ver en la tienda</a>
+            </div>
+          </template>
         </div>
 
         <div class="inline-form" style="padding:12px 16px;border-top:1px solid var(--line);">

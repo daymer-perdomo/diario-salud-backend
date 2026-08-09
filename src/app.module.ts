@@ -25,7 +25,6 @@ import { PipelineStatusModule } from './pipeline-status/pipeline-status.module';
 import { BlogModule } from './blog/blog.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
-import { OrdersModule } from './orders/orders.module';
 import { UsersModule } from './users/users.module';
 import { WordpressModule } from './wordpress/wordpress.module';
 import { IntegrationModule } from './integration/integration.module';
@@ -58,8 +57,6 @@ import { AiSettingsModule } from './ai-settings/ai-settings.module';
         '/inventory',
         '/chatbot/(.*)',
         '/chatbot',
-        '/orders/(.*)',
-        '/orders',
         '/users/(.*)',
         '/users',
         '/wordpress/(.*)',
@@ -97,7 +94,6 @@ import { AiSettingsModule } from './ai-settings/ai-settings.module';
     BlogModule,
     InventoryModule,
     ChatbotModule,
-    OrdersModule,
     UsersModule,
     WordpressModule,
     IntegrationModule,

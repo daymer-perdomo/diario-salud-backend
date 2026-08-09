@@ -656,8 +656,7 @@ model Product {
   // default-article-image.util.ts).
   imageUrl String?
 
-  stock      ProductStock[]
-  orderItems OrderRequestItem[]
+  stock ProductStock[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -837,8 +836,7 @@ model ChatSession {
   ipHash  String?
   channel String  @default("wordpress_widget")
 
-  messages      ChatMessage[]
-  orderRequests OrderRequest[]
+  messages ChatMessage[]
 
   createdAt     DateTime @default(now())
   lastMessageAt DateTime @default(now())
@@ -887,69 +885,6 @@ model InventorySyncRun {
 
   @@index([startedAt])
   @@map("inventory_sync_runs")
-}
-
-// =====================================================================
-// Solicitud de pedido (carrito) del chatbot -- NUNCA un checkout real ni
-// pago en linea (pedido explicito del usuario): el cliente arma
-// producto+cantidad en el chat, y al enviarla el personal la confirma,
-// cobra y entrega por su cuenta (sucursal/WhatsApp/telefono). Toda la
-// logica de cantidades/precios es determinista (ChatCartService), el LLM
-// nunca participa en el carrito.
-// =====================================================================
-
-enum OrderRequestStatus {
-  /// El cliente todavia esta agregando/quitando productos -- no es
-  /// visible para el personal hasta que se envia (PENDIENTE).
-  BORRADOR
-  /// Enviada por el cliente (con nombre/telefono de contacto), esperando
-  /// que el personal la revise.
-  PENDIENTE
-  CONFIRMADO
-  CANCELADO
-}
-
-/// Un BORRADOR por ChatSession a la vez (ver ChatCartService
-/// .findOrCreateDraftCart) -- si el cliente ya envio una solicitud y
-/// sigue chateando, se crea un BORRADOR nuevo para la siguiente.
-model OrderRequest {
-  id            String             @id @default(uuid())
-  sessionId     String
-  session       ChatSession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  status        OrderRequestStatus @default(BORRADOR)
-  customerName  String?
-  customerPhone String?
-
-  items OrderRequestItem[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([status, createdAt])
-  @@map("order_requests")
-}
-
-/// skuSnapshot/nameSnapshot/priceSnapshot congelan el dato tal como
-/// estaba al momento de agregarlo -- si Distrimonaco actualiza el precio
-/// despues (sync programada), la solicitud ya enviada no debe cambiar
-/// silenciosamente lo que el cliente vio.
-model OrderRequestItem {
-  id             String       @id @default(uuid())
-  orderRequestId String
-  orderRequest   OrderRequest @relation(fields: [orderRequestId], references: [id], onDelete: Cascade)
-  productId      String
-  product        Product      @relation(fields: [productId], references: [id])
-
-  skuSnapshot   String
-  nameSnapshot  String
-  priceSnapshot Decimal @db.Decimal(10, 2)
-  quantity      Int
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([orderRequestId, productId])
-  @@map("order_request_items")
 }
 
 // =====================================================================

@@ -58,9 +58,10 @@ export class InventoryService {
     return product;
   }
 
-  /// Usado por ChatCartService al agregar un item -- el frontend solo
-  /// conoce el sku (lo que ya se le mostro en la tabla de productos), no
-  /// el id interno.
+  /// Usado por ChatbotService.gatherFacts para cruzar un resultado de
+  /// WooCommerce con el catalogo interno de Distrimonaco (stock fisico por
+  /// sucursal, si requiere receta, alternativas) -- el sku es el unico dato
+  /// en comun entre ambos catalogos.
   async findBySku(sku: string) {
     return this.prisma.product.findUnique({ where: { sku }, include: PRODUCT_WITH_STOCK_INCLUDE });
   }

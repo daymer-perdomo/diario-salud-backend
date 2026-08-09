@@ -62,13 +62,10 @@ productos) es la fuente PRIMARIA de búsqueda por nombre, precio y disponibilida
 chatbot** -- antes buscaba primero en el catálogo interno de Distrimonaco (~7,000) y solo
 cruzaba WooCommerce como verificación secundaria; eso se invirtió. Distrimonaco pasó a ser el
 enriquecimiento secundario (stock físico por sucursal, si requiere receta, alternativas por
-principio activo) solo cuando el mismo SKU también existe ahí. Consecuencia real aceptada:
-como el carrito del chat (`ChatCartService`) solo puede armar pedidos con productos que
-existen en Distrimonaco (el personal despacha de inventario físico real), la mayoría de lo
-que WooCommerce ahora expone no se puede agregar al carrito del chat -- en esos casos el
-chatbot ofrece el link directo a la tienda (`permalink`) en vez de "Agregar" (ver `canOrder`
-en `ChatbotService`). El modelo y la API key de Gemini (compartidos con el resto del pipeline
-de IA) son configurables desde el panel en `Chatbot` → "Configuración del modelo de IA"
+principio activo) solo cuando el mismo SKU también existe ahí -- `canOrder` refleja ese cruce
+pero ya **no** limita si se puede agregar al carrito (ver siguiente párrafo). El modelo y la
+API key de Gemini (compartidos con el resto del pipeline de IA) son configurables desde el
+panel en `Chatbot` → "Configuración del modelo de IA"
 (`GET`/`PATCH /ai-settings`) en vez de fijos en variables de entorno; la personalidad/tono
 sigue siendo el prompt `CHAT_REPLY_COMPOSITION` de siempre, editable en `Guía`. Antes de tocar
 esto, lee
@@ -80,6 +77,20 @@ nuevo del backend estuviera desplegado (el `ValidationPipe` rechaza cualquier ca
 DTO en producción no conozca todavía). Ambos con su fix real, para no repetirlos. Validado en
 producción con un producto real que solo existe en WooCommerce (NOFERTYL, SKU
 7702870002636).
+
+**2026-08-09 (2da vuelta), pedido explícito del usuario: se eliminó el carrito propio del
+chat (Pedidos/`OrderRequest`, `ChatCartService` -- nunca se gestionó una solicitud real, el
+usuario lo confirmó antes de borrar). "Agregar producto" ahora agrega de verdad al carrito
+NATIVO de WooCommerce** (el mismo `/carrito/` de ecofarma.co), disparando desde el navegador
+del cliente el flujo AJAX que WooCommerce core ya carga en el tema (`data-product_id` = el
+`id` numérico que ahora trae cada producto en la respuesta de `/chatbot/message`) -- ya no
+depende del cruce con Distrimonaco. La vista de detalle ("Ver producto") es un overlay a
+pantalla completa dentro del widget (imagen grande, precio, botón "Agregar producto"), y la
+conversación ya sobrevive un F5 del navegador (segunda clave de `localStorage`,
+`ecofarma_chat_history`, capada a los últimos 30 turnos). Antes de tocar cualquiera de esto,
+lee **la sección 8** de `docs/integracion-chatbot-wordpress.md` -- documenta el mecanismo del
+carrito nativo verificado en vivo (evento `added_to_cart`, `.xoo-wsc-items-count`, el Cart
+Block moderno en `/carrito/`) para no tener que re-verificarlo desde cero.
 
 **Sección 7**: resultados de productos en carrusel horizontal siempre (no tarjetas/tabla
 según cantidad) y saludo inicial con lista de capacidades -- **dos bugs de CSS reales que no

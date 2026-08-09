@@ -10,8 +10,9 @@
 
 El chatbot de inventario ya está construido en el backend (`src/chatbot/`): un widget
 público, sin login, que un cliente usa para preguntar por disponibilidad/precio/sucursal de
-un producto y, si quiere, armar una solicitud de pedido (nunca un cobro en línea -- el
-personal la confirma manualmente desde `Pedidos`).
+un producto y, si quiere, agregarlo directo al **carrito real de WooCommerce** (el mismo
+`/carrito/` de la tienda -- ver sección 8, no existe un carrito propio del chat desde
+2026-08-09).
 
 Esta integración tiene dos partes, ambas ya implementadas del lado del backend:
 
@@ -32,10 +33,12 @@ Resuelve su propia URL base de API en este orden (ver `public/widget/chatbot.js:
 1. El atributo `data-api-base-url` de su propio `<script>`, si está presente.
 2. El origen (`https://dominio`) desde el que se cargó el script.
 
-Habla con dos grupos de endpoints, ambos públicos y sin autenticación (protegidos por rate
-limiting, no por login -- es el único caso en todo el backend):
-- `POST /chatbot/message` -- el mensaje del cliente y la respuesta del asistente.
-- `GET/POST /chatbot/cart/*` -- carrito de la conversación y solicitud de pedido.
+Habla con un único endpoint público, sin autenticación (protegido por rate limiting, no por
+login -- es el único caso en todo el backend):
+- `POST /chatbot/message` -- el mensaje del cliente y la respuesta del asistente (incluye el
+  `id` numérico de WooCommerce de cada producto, que el widget usa para agregarlo al carrito
+  nativo -- ver sección 8). Ya no existe `GET/POST /chatbot/cart/*` (carrito propio del chat,
+  eliminado 2026-08-09 junto con `Pedidos`/`OrderRequest`).
 
 Detecta el botón flotante del carrito de WooCommerce (`.xoo-wsc-basket`) para posicionar su
 propio botón (FAB) siempre encima, sin importar el tema o el dispositivo.
@@ -92,15 +95,14 @@ real y completo de la tienda), y Distrimonaco pasó a ser un enriquecimiento sec
   claridad (`requiresPrescription: null` → "confirma si requiere receta médica") en vez de
   asumir que no aplica.
 
-**Límite real de producto, aceptado a propósito:** el carrito del chatbot
-(`ChatCartService.addItem`) arma cada solicitud de pedido contra el catálogo interno de
-Distrimonaco, porque el personal despacha desde inventario físico real -- nunca desde
-WooCommerce. Con ~42,000 productos en WooCommerce contra ~7,000 en Distrimonaco, la mayoría
-de lo que el chatbot ahora puede *mostrar* no se puede agregar al carrito del chat. Para esos
-casos (`canOrder: false` en cada producto), el chatbot no ofrece "agregar" -- ofrece el
-enlace directo a la página del producto (`permalink`) para comprarlo normal por la tienda en
-línea. El widget (`renderProductsCards`/`renderProductsTable` en `public/widget/chatbot.js`)
-muestra un link "Ver en la tienda" en ese caso en vez de los controles de cantidad.
+**`canOrder` es informativo, no gatekeeper (desde 2026-08-09, 2da vuelta):** al principio,
+`canOrder: false` (sin cruce con Distrimonaco) bloqueaba "agregar" y el widget ofrecía solo
+el link a la tienda -- porque el carrito propio del chat (`ChatCartService`, eliminado)
+armaba cada solicitud contra el catálogo interno, y el personal solo podía despachar de ahí.
+Con el carrito **nativo** de WooCommerce (sección 8), esa limitación desaparece: cualquier
+producto con `id` de WooCommerce se puede agregar al carrito real, tenga o no contraparte en
+Distrimonaco. `canOrder` se queda solo para decidir si mostrar stock físico por
+sucursal/receta/alternativas (datos que sí dependen de ese cruce).
 
 `ChatbotService.gatherFacts()` hace, en orden:
 1. `WoocommerceCatalogService.searchByTerms()` -- búsqueda primaria, multi-término (con
@@ -265,3 +267,88 @@ alto real por separado. Fix: `flex-shrink: 0` explícito en `.products-carousel`
 nuevo en producción simulando 4 preguntas seguidas (`scrollHeight` de `.messages`: 2084px vs.
 `clientHeight`: 438px, la misma condición de desborde que causaba el bug) -- la tarjeta quedó
 en 337px, su alto de contenido real.
+
+---
+
+## 8. Carrito nativo de WooCommerce + vista de detalle + conversación persistente (2026-08-09, 2da vuelta)
+
+El usuario volvió a compartir la referencia de Farmatodo ("Sommer") con un pedido concreto:
+que "Agregar producto" en la vista de detalle agregue de verdad al **carrito de la tienda**
+(no a una solicitud interna que el personal confirma a mano), y que se quite por completo la
+función de Pedidos -- ya no hace falta ese paso manual. En el mismo mensaje, pidió además que
+recargar el navegador no borre visualmente la conversación.
+
+### 8.1 Se eliminó el carrito propio del chat (Pedidos / `OrderRequest`)
+
+Confirmado explícitamente por el usuario antes de borrar: la pestaña "Pedidos" del panel
+llevaba desde el 2026-08-02 sin botón de acceso en el menú (quedó huérfana al reorganizar el
+sidebar) y **nunca se gestionó una solicitud real** por ahí -- se pudo eliminar sin
+necesidad de respaldo.
+
+Se borraron por completo: las tablas `order_requests`/`order_request_items` (migración
+`remove_order_requests`), `src/orders/`, `src/chatbot/chat-cart.service.ts`,
+`src/chatbot/cart.controller.ts` y sus DTOs, la pestaña "Pedidos" del panel
+(`public/sections/pedidos.html` y el estado/métodos `orders*` en `public/index.html`), y en
+el widget todo el bloque de `.cart-bar`/`renderCartBar`/`refreshCart`/`addToCart` (el viejo,
+contra `/chatbot/cart/items`)/`submitCart`/`checkOrderStatus`/`renderReferenceForm` y la
+opción de menú "Ver el estado de mi solicitud".
+
+`InventoryService.findBySku` **no se tocó** -- lo sigue usando `ChatbotService.gatherFacts()`
+para el cruce con Distrimonaco (stock físico, receta, alternativas), que no depende del
+carrito.
+
+### 8.2 Carrito nativo de WooCommerce -- mecanismo verificado en vivo
+
+El tema de ecofarma.co ya carga el script core de WooCommerce (`window.wc_add_to_cart_params`
+existe) y usa el patrón estándar de botón AJAX:
+`<a class="ajax_add_to_cart add_to_cart_button" data-product_id="X" data-quantity="1"
+href="?add-to-cart=X">`. Se verificó en vivo, sin dejar cambios permanentes, que:
+
+- Un `<a>` con esas mismas clases/atributos, creado **dinámicamente** por JS (nunca antes en
+  la página) y con un `.click()` disparado a mano, **sí activa el flujo AJAX nativo** -- la
+  delegación de eventos de WooCommerce no depende de que el elemento ya estuviera en el DOM.
+  Confirmado con la clase pasando a `...ajax_add_to_cart added`, `.xoo-wsc-items-count` (badge
+  del carrito lateral del tema) subiendo a 1, y el producto apareciendo de verdad en
+  `/carrito/` (`get_page_text` mostró el nombre real y el precio real del producto).
+- `window.jQuery` existe y el evento estándar `added_to_cart` se dispara en `document.body`
+  con los fragments reales -- es la señal confiable para saber que terminó, más robusta que
+  un timeout a ciegas (el widget igual mantiene un timeout corto de respaldo, 1.5s, por si
+  jQuery no cargó todavía).
+- `/carrito/` usa el Cart Block moderno de WooCommerce (React, Store API) -- el botón de
+  quitar es `.wc-block-cart-item__remove-link`, no el clásico `a.remove[href*="remove_item"]`.
+- Como esto corre en el navegador del **cliente** (no en nuestro backend), no aplica el
+  bloqueo de Cloudflare que sí afecta el tráfico backend→WordPress documentado en
+  `docs/integracion-inventario-wordpress.md` -- es tráfico normal del navegador al mismo
+  sitio.
+
+Implementación (`addToWooCommerceCart` en `public/widget/chatbot.js`): crea el `<a>` dinámico
+con `data-product_id` = el `id` numérico de WooCommerce que ahora trae cada producto en la
+respuesta de `/chatbot/message` (`ChatbotService.gatherFacts`, ver sección 1), le hace
+`.click()`, y escucha `added_to_cart` (con el timeout de respaldo) para mostrar "Agregado al
+carrito ✓" en el botón. Si `window.wc_add_to_cart_params` no existe (nunca debería pasar en
+ecofarma.co real -- es solo defensivo, y es el caso siempre en la consola de prueba interna
+del panel, que vive en nuestro propio dominio), cae a abrir `permalink` en pestaña nueva.
+
+### 8.3 Vista de detalle ("Ver producto")
+
+El pequeño bloque de detalle que se expandía dentro de la tarjeta del carrusel (iteración
+anterior, sección 7) se reemplazó por un **overlay a pantalla completa** dentro del panel del
+widget (imagen grande, nombre, laboratorio, precio, aviso de receta si aplica, botón ancho
+completo "Agregar producto", link secundario "Ver en la tienda", botón × para cerrar) --
+mismo espíritu visual que la referencia de Farmatodo. Mismo overlay replicado en
+`public/sections/chatbot-test.html` para QA visual, aunque ahí "Agregar producto" siempre cae
+al fallback de abrir la tienda (esa consola nunca está dentro de una página de WordPress).
+
+### 8.4 Conversación persistente entre recargas
+
+Antes, solo `conversationId` se guardaba en `localStorage` (`ecofarma_chat_conversation_id`)
+-- el backend conservaba el historial, pero un F5 vaciaba visualmente el chat porque los
+mensajes/carruseles ya renderizados no se guardaban en ningún lado. Se agregó una segunda
+clave, `ecofarma_chat_history`, con el arreglo de turnos reales de la conversación (eco del
+usuario, respuesta del bot, carruseles de productos), capado a los últimos 30. Al abrir el
+widget: si hay `conversationId` **y** hay historial guardado, se reconstruye la UI llamando a
+los mismos renderers (`appendMessage`/`renderProductsCarousel`) por cada entrada guardada, en
+vez de mostrar el saludo + menú inicial. Si `localStorage` está bloqueado (modo privado) o no
+hay historial, cae al comportamiento de siempre (saludo nuevo) -- mismo manejo defensivo
+try/catch que ya existía para `conversationId`. El saludo/menú inicial y los mensajes de
+error/"escribiendo..." **no** se persisten a propósito (solo los turnos reales).

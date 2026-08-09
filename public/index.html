@@ -507,7 +507,6 @@
       <div x-show="tab === 'blog'" id="section-blog"></div>
       <div x-show="tab === 'inventario'" id="section-inventario"></div>
       <div x-show="tab === 'chatbot-test'" id="section-chatbot-test"></div>
-      <div x-show="tab === 'pedidos'" id="section-pedidos"></div>
       <div x-show="tab === 'guia'" id="section-guia"></div>
       <div x-show="tab === 'usuarios'" id="section-usuarios"></div>
     </main>
@@ -661,32 +660,17 @@ function app() {
     chatbotTestInput: '',
     chatbotTestBusy: false,
     chatbotTestConversationId: null,
-    chatbotTestCart: { items: [], total: 0, notices: [] },
-    chatbotTestCartFormOpen: false,
-    chatbotTestCartName: '',
-    chatbotTestCartPhone: '',
-    chatbotTestCartBusy: false,
-    // "status"/"pharmacist" ya funcionan (ver selectChatbotTestMenuOption)
-    // pero quedan deshabilitados por pedido explicito del usuario
-    // 2026-07-29 para el lanzamiento inicial -- se muestran igual con
-    // tooltip "Disponible próximamente".
+    chatbotTestDetailProduct: null,
+    // "pharmacist" ya funciona (ver selectChatbotTestMenuOption) pero
+    // queda deshabilitado por pedido explicito del usuario 2026-07-29 para
+    // el lanzamiento inicial -- se muestra igual con tooltip "Disponible
+    // próximamente". "Ver el estado de mi solicitud" se elimino 2026-08-09
+    // (2da vuelta) junto con Pedidos/OrderRequest.
     chatbotTestMenuOptions: [
       { label: 'Buscar un producto', action: 'search' },
-      { label: 'Ver el estado de mi solicitud', action: 'status', disabled: true },
       { label: 'Hablar con un farmacéutico', action: 'pharmacist', disabled: true },
       { label: 'Otra pregunta', action: 'other' },
     ],
-    chatbotTestReferenceFormVisible: false,
-    chatbotTestReferenceInput: '',
-
-    // Pedidos (solicitudes armadas desde el carrito del chatbot)
-    orders: [],
-    ordersLoading: false,
-    ordersStatusFilter: '',
-    ordersPage: 1,
-    ordersPageSize: 20,
-    ordersMeta: { total: 0, totalPages: 1 },
-    ordersPendingCount: 0,
 
     // Usuarios -- solo ADMIN ve esta pestana (RolesGuard tambien la exige
     // en el backend, esto es solo para no mostrar una opcion que fallaria).
@@ -752,7 +736,7 @@ function app() {
         localStorage.setItem('ds_jwt', this.jwtToken);
         this.authenticated = true;
         await this.loadSection('articulos');
-        await Promise.all([this.loadHealth(), this.loadAllArticles(), this.loadRuns(), this.refreshOrdersPendingCount()]);
+        await Promise.all([this.loadHealth(), this.loadAllArticles(), this.loadRuns()]);
         this.startPipelinePolling();
         return true;
       } catch { return false; }
@@ -764,7 +748,6 @@ function app() {
       this.me = null; this.articles = []; this.sources = []; this.health = null; this.runs = []; this.blogPosts = [];
       this.inventoryProducts = []; this.inventoryBranches = []; this.distrimonacoSyncRuns = []; this.synonyms = [];
       this.chatbotTestMessages = []; this.chatbotTestConversationId = null;
-      this.orders = []; this.ordersPendingCount = 0;
       this.users = [];
       clearInterval(this._pipelineInterval);
       this._pipelineInterval = null;
@@ -818,7 +801,6 @@ function app() {
       if (this.tab === 'articulos') { this.loadAllArticles(); this.loadRuns(); }
       else if (this.tab === 'blog') { this.loadBlogPosts(); }
       else if (this.tab === 'inventario') { this.loadInventoryProducts(); }
-      else if (this.tab === 'pedidos') { this.loadOrders(); }
       else if (this.tab === 'guia') { this.loadSourceStats(); this.loadSources(); }
     },
 
@@ -1470,12 +1452,8 @@ function app() {
         this.chatbotTestMessages.push({
           role: 'bot',
           text: body.reply,
-          products:
-            Array.isArray(body.products) && body.products.length > 1
-              ? body.products.map((p) => ({ ...p, _qty: 1, _detailOpen: false }))
-              : null,
+          products: Array.isArray(body.products) && body.products.length > 0 ? body.products : null,
         });
-        await this.refreshChatbotTestCart();
       } catch {
         this.chatbotTestMessages.push({ role: 'error', text: 'No se pudo conectar con el chatbot.' });
       } finally {
@@ -1490,12 +1468,7 @@ function app() {
     resetChatbotTestConversation() {
       this.chatbotTestMessages = [];
       this.chatbotTestConversationId = null;
-      this.chatbotTestCart = { items: [], total: 0, notices: [] };
-      this.chatbotTestCartFormOpen = false;
-      this.chatbotTestCartName = '';
-      this.chatbotTestCartPhone = '';
-      this.chatbotTestReferenceFormVisible = false;
-      this.chatbotTestReferenceInput = '';
+      this.chatbotTestDetailProduct = null;
     },
 
     // ── Menú de opciones (estilo Farmatodo) ─────────────────────────────
@@ -1503,7 +1476,7 @@ function app() {
       this.chatbotTestMessages.push({ role: 'menu' });
     },
 
-    async selectChatbotTestMenuOption(idx, opt) {
+    selectChatbotTestMenuOption(idx, opt) {
       this.chatbotTestMessages.splice(idx, 1);
       this.chatbotTestMessages.push({ role: 'user', text: opt.label });
       if (opt.action === 'search') {
@@ -1515,105 +1488,28 @@ function app() {
         });
       } else if (opt.action === 'other') {
         this.chatbotTestMessages.push({ role: 'bot', text: 'Claro, cuéntame en qué te ayudo.' });
-      } else if (opt.action === 'status') {
-        this.chatbotTestMessages.push({ role: 'bot', text: 'Indícame el número de referencia de tu solicitud (ej. AEA5DCBE).' });
-        this.chatbotTestReferenceFormVisible = true;
       }
     },
 
-    async submitChatbotTestReference() {
-      const ref = this.chatbotTestReferenceInput.trim();
-      if (!ref) return;
-      this.chatbotTestReferenceFormVisible = false;
-      this.chatbotTestReferenceInput = '';
-      this.chatbotTestMessages.push({ role: 'user', text: ref });
-      try {
-        const r = await fetch(`/chatbot/cart/status/${encodeURIComponent(ref)}`);
-        if (r.status === 404) {
-          this.chatbotTestMessages.push({ role: 'error', text: 'No encontramos una solicitud con ese número de referencia -- verifica que esté completo.' });
-          return;
-        }
-        if (!r.ok) {
-          this.chatbotTestMessages.push({ role: 'error', text: 'No se pudo consultar el estado en este momento.' });
-          return;
-        }
-        const body = await r.json();
-        const statusLabel = { PENDIENTE: 'Pendiente de confirmación', CONFIRMADO: 'Confirmada', CANCELADO: 'Cancelada' }[body.status] || body.status;
-        const itemsText = body.items.map((i) => `${i.quantity}x ${i.name}`).join(', ');
-        this.chatbotTestMessages.push({
-          role: 'bot',
-          text: `Solicitud #${body.reference}: ${statusLabel}.\nProductos: ${itemsText}\nTotal: ${this.formatPrice(body.total)}`,
-        });
-      } catch {
-        this.chatbotTestMessages.push({ role: 'error', text: 'No se pudo conectar para consultar el estado.' });
-      }
+    // ── Vista de detalle ("Ver producto") ───────────────────────────────
+    // Mismo overlay que el widget publico (public/widget/chatbot.js,
+    // showProductOverlay), pero esta consola vive en nuestro propio
+    // dominio -- nunca dentro de una pagina de WordPress -- asi que
+    // window.wc_add_to_cart_params nunca existe aca: "Agregar producto"
+    // siempre cae al mismo fallback que "Ver en la tienda" (abrir el
+    // permalink). El agregado real al carrito nativo solo se puede
+    // verificar en ecofarma.co en vivo, ver
+    // docs/integracion-chatbot-wordpress.md.
+    openChatbotTestDetail(product) {
+      this.chatbotTestDetailProduct = product;
     },
 
-    // Carrito de prueba -- llama a /chatbot/cart/* tal cual el widget
-    // publico, 100% determinista (ver ChatCartService).
-    async refreshChatbotTestCart() {
-      if (!this.chatbotTestConversationId) return;
-      try {
-        const r = await fetch(`/chatbot/cart?conversationId=${this.chatbotTestConversationId}`);
-        if (r.ok) this.chatbotTestCart = await r.json();
-      } catch {}
+    closeChatbotTestDetail() {
+      this.chatbotTestDetailProduct = null;
     },
 
-    async addToChatbotTestCart(product, quantity) {
-      if (!this.chatbotTestConversationId) return;
-      try {
-        const r = await fetch('/chatbot/cart/items', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId: this.chatbotTestConversationId, sku: product.sku, quantity }),
-        });
-        if (!r.ok) {
-          const b = await r.json().catch(() => ({}));
-          this.chatbotTestMessages.push({ role: 'error', text: b?.message || 'No se pudo actualizar el carrito.' });
-          return;
-        }
-        this.chatbotTestCart = await r.json();
-        if (quantity > 0) {
-          this.chatbotTestMessages.push({ role: 'bot', text: `Agregaste ${quantity}x ${product.name} a tu solicitud.` });
-          this.chatbotTestCart.notices.forEach((n) => this.chatbotTestMessages.push({ role: 'notice', text: n }));
-        }
-      } catch {
-        this.chatbotTestMessages.push({ role: 'error', text: 'No se pudo conectar para actualizar el carrito.' });
-      }
-    },
-
-    removeFromChatbotTestCart(sku) {
-      this.addToChatbotTestCart({ sku, name: '' }, 0);
-    },
-
-    async submitChatbotTestCart() {
-      if (!this.chatbotTestCartName.trim() || !this.chatbotTestCartPhone.trim()) {
-        this.chatbotTestMessages.push({ role: 'error', text: 'Necesitas nombre y teléfono para enviar la solicitud.' });
-        return;
-      }
-      this.chatbotTestCartBusy = true;
-      try {
-        const r = await fetch('/chatbot/cart/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            conversationId: this.chatbotTestConversationId,
-            customerName: this.chatbotTestCartName.trim(),
-            customerPhone: this.chatbotTestCartPhone.trim(),
-          }),
-        });
-        if (!r.ok) {
-          const b = await r.json().catch(() => ({}));
-          this.chatbotTestMessages.push({ role: 'error', text: b?.message?.[0] || b?.message || 'No se pudo enviar la solicitud.' });
-          return;
-        }
-        const body = await r.json();
-        this.chatbotTestMessages.push({ role: 'bot', text: `¡Listo! Solicitud #${body.reference} registrada. El personal la confirmará por su cuenta.` });
-        this.chatbotTestCart = { items: [], total: 0, notices: [] };
-        this.chatbotTestCartFormOpen = false;
-        this.chatbotTestCartName = '';
-        this.chatbotTestCartPhone = '';
-      } finally { this.chatbotTestCartBusy = false; }
+    addChatbotTestProductToCart(product) {
+      window.open(product.permalink, '_blank', 'noopener,noreferrer');
     },
 
     async loadSynonyms() {
@@ -1735,52 +1631,6 @@ function app() {
           this.showToast(b?.message?.[0] || b?.message || 'No se pudo crear el usuario', 'error');
         }
       } finally { this.newUserBusy = false; }
-    },
-
-    // ── Pedidos (solicitudes del carrito del chatbot) ───────────────────
-    async refreshOrdersPendingCount() {
-      try {
-        const r = await this.get('/orders?status=PENDIENTE&page=1&pageSize=1');
-        if (r.ok) this.ordersPendingCount = (await r.json()).meta.total;
-      } catch {}
-    },
-
-    async loadOrders() {
-      this.ordersLoading = true;
-      try {
-        const params = new URLSearchParams({ page: this.ordersPage, pageSize: this.ordersPageSize });
-        if (this.ordersStatusFilter) params.set('status', this.ordersStatusFilter);
-        const [listRes] = await Promise.all([this.get(`/orders?${params}`), this.refreshOrdersPendingCount()]);
-        if (listRes.ok) {
-          const body = await listRes.json();
-          this.orders = body.data;
-          this.ordersMeta = body.meta;
-        }
-      } finally { this.ordersLoading = false; }
-    },
-
-    goToOrdersPage(n) {
-      this.ordersPage = Math.min(Math.max(1, n), this.ordersMeta.totalPages);
-      this.loadOrders();
-    },
-
-    async setOrderStatus(order, status) {
-      order._busy = true;
-      try {
-        const r = await this.patch(`/orders/${order.id}`, { status });
-        if (r.ok) {
-          Object.assign(order, await r.json());
-          this.showToast(status === 'CONFIRMADO' ? 'Pedido confirmado' : 'Pedido cancelado');
-          this.loadOrders();
-        } else {
-          const b = await r.json().catch(() => ({}));
-          this.showToast(b?.message || 'No se pudo actualizar el pedido', 'error');
-        }
-      } finally { order._busy = false; }
-    },
-
-    orderStatusBadge(status) {
-      return { PENDIENTE: 'badge-amber', CONFIRMADO: 'badge-green', CANCELADO: 'badge-red' }[status] || 'badge-gray';
     },
 
     // ── Fuentes ──────────────────────────────────────────────────────────

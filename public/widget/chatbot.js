@@ -9,6 +9,14 @@
 
   var CURRENT_SCRIPT = document.currentScript;
   var STORAGE_KEY = 'ecofarma_chat_conversation_id';
+  /// Pedido explicito del usuario 2026-08-09 (2da vuelta): recargar el
+  /// navegador no debe borrar visualmente la conversacion. Antes solo se
+  /// guardaba el conversationId (el backend si tenia el historial, pero la
+  /// UI quedaba vacia tras un F5). Guarda los mensajes/carruseles ya
+  /// renderizados, capados a los ultimos HISTORY_LIMIT, para reconstruir
+  /// la UI sin volver a pedirle nada al backend.
+  var HISTORY_KEY = 'ecofarma_chat_history';
+  var HISTORY_LIMIT = 30;
 
   function resolveApiBaseUrl() {
     if (CURRENT_SCRIPT && CURRENT_SCRIPT.dataset && CURRENT_SCRIPT.dataset.apiBaseUrl) {
@@ -69,11 +77,6 @@
       background: ${BRAND_BLUE}; color: #fff; border: none; border-radius: 20px; padding: 0 16px; cursor: pointer; font-size: 13px;
     }
     .composer button:disabled { opacity: .5; cursor: default; }
-    .qty-input { width: 42px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 4px; font-size: 12px; }
-    .add-btn { background: ${BRAND_BLUE}; color: #fff; border: none; border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; margin-top: 4px; }
-    .add-btn:disabled { opacity: .5; cursor: default; }
-    .store-link { color: ${BRAND_BLUE}; font-size: 11px; font-weight: 600; text-decoration: underline; white-space: nowrap; margin-top: 4px; display: inline-block; }
-    .row-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
     /* Carrusel horizontal SIEMPRE (sin importar cuantos resultados haya) --
        pedido explicito del usuario 2026-08-09, inspirado en la referencia
        del chatbot "Sommer" de Farmatodo. Reemplaza el diseno anterior
@@ -105,33 +108,29 @@
     .product-card-name { font-size: 12.5px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .product-card-lab { color: #64748b; font-size: 10.5px; }
     .product-card-price { font-size: 15px; font-weight: 700; color: ${BRAND_BLUE}; margin-top: 4px; }
-    .product-card-stock { font-size: 10.5px; color: #64748b; }
     .view-btn {
       background: #fff; color: ${BRAND_BLUE}; border: 1px solid ${BRAND_BLUE}; border-radius: 20px;
       padding: 5px 8px; font-size: 11px; cursor: pointer; margin-top: 6px; width: 100%;
     }
     .view-btn:hover { background: #eef1fd; }
-    .product-card-detail { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
-    .product-card-detail.hidden { display: none; }
-    .product-card .row-actions { flex-direction: row; align-items: center; margin-top: 6px; }
-    .product-card .add-btn { flex: 1; padding: 6px 8px; border-radius: 20px; font-size: 12px; }
-    .cart-bar { border-top: 1px solid #e2e8f0; background: #fff; }
-    .cart-bar.hidden { display: none; }
-    .cart-summary { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; cursor: pointer; font-size: 12px; color: #1e293b; }
-    .cart-summary strong { color: ${BRAND_BLUE}; }
-    .cart-details { padding: 0 12px 10px; display: none; }
-    .cart-details.open { display: block; }
-    .cart-item-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
-    .cart-item-remove { background: none; border: none; color: #b91c1c; cursor: pointer; font-size: 14px; padding: 0 4px; }
-    .cart-submit-btn { width: 100%; margin-top: 8px; background: ${BRAND_BLUE}; color: #fff; border: none; border-radius: 8px; padding: 8px; font-size: 12px; cursor: pointer; }
-    .cart-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-    .cart-form input {
-      border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 10px; font-size: 12px; outline: none;
-    }
-    .cart-form-actions { display: flex; gap: 6px; }
-    .cart-form-actions button { flex: 1; border-radius: 8px; padding: 7px; font-size: 12px; cursor: pointer; }
-    .cart-form-actions .confirm { background: ${BRAND_BLUE}; color: #fff; border: none; }
-    .cart-form-actions .cancel { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+    /* Overlay de detalle ("Ver producto") -- cubre el panel completo
+       (incl. header/composer) con su propio boton de cerrar, mismo
+       espiritu visual que la referencia de Farmatodo compartida por el
+       usuario 2026-08-09 (2da vuelta). position:relative en .panel es lo
+       que ancla el inset:0 de aca. */
+    .overlay { position: absolute; inset: 0; background: #fff; display: flex; flex-direction: column; z-index: 10; }
+    .overlay.hidden { display: none; }
+    .overlay-header { display: flex; align-items: center; justify-content: flex-end; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; }
+    .overlay-close { background: none; border: none; font-size: 18px; line-height: 1; cursor: pointer; color: #334155; padding: 4px 8px; }
+    .overlay-body { flex: 1; overflow-y: auto; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
+    .overlay-img { width: 100%; height: 200px; object-fit: contain; background: #f1f5f9; border-radius: 10px; }
+    .overlay-name { font-size: 16px; font-weight: 700; color: #1e293b; line-height: 1.3; }
+    .overlay-lab { font-size: 12px; color: #64748b; }
+    .overlay-price { font-size: 22px; font-weight: 800; color: ${BRAND_BLUE}; }
+    .overlay-rx { font-size: 12px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 10px; }
+    .overlay-add-btn { width: 100%; background: ${BRAND_BLUE}; color: #fff; border: none; border-radius: 10px; padding: 13px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 6px; }
+    .overlay-add-btn:disabled { opacity: .6; cursor: default; }
+    .overlay-store-link { text-align: center; color: ${BRAND_BLUE}; font-size: 12.5px; font-weight: 600; text-decoration: underline; }
     .menu-block { align-self: center; width: 82%; display: flex; flex-direction: column; gap: 8px; margin: 4px 0; }
     .menu-btn {
       width: 100%; background: #fff; border: 1px solid ${BRAND_BLUE}; color: ${BRAND_BLUE}; border-radius: 18px;
@@ -147,11 +146,6 @@
       display: flex; align-items: center; justify-content: center;
     }
     .composer .menu-toggle:hover { background: #f1f5f9; }
-    .ref-form { align-self: center; width: 82%; display: flex; gap: 6px; margin: 4px 0; }
-    .ref-form input {
-      flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 10px; font-size: 12px; outline: none;
-    }
-    .ref-form button { background: ${BRAND_BLUE}; color: #fff; border: none; border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; }
   `;
 
   function escapeHtml(value) {
@@ -187,12 +181,12 @@
       '<div class="header"><img src="' + AVATAR_URL + '" alt="Asistente EcoFarma" />' +
       '<div>¡Hola! ¿En qué puedo ayudarte?<small>Disponibilidad, precio y sucursales</small></div></div>' +
       '<div class="messages"></div>' +
-      '<div class="cart-bar hidden"></div>' +
       '<div class="composer">' +
       '<button type="button" class="menu-toggle" title="Ver opciones" aria-label="Ver opciones">☰</button>' +
       '<input type="text" placeholder="Escribe tu pregunta..." maxlength="2000" />' +
       '<button type="button" class="send-btn">Enviar</button>' +
-      '</div>';
+      '</div>' +
+      '<div class="overlay hidden"></div>';
     root.appendChild(panel);
 
     /// Reposiciona el FAB (y el panel, que cuelga de el) justo encima del
@@ -232,22 +226,47 @@
     var inputEl = panel.querySelector('input');
     var sendBtn = panel.querySelector('.send-btn');
     var menuToggleBtn = panel.querySelector('.menu-toggle');
-    var cartBarEl = panel.querySelector('.cart-bar');
+    var overlayEl = panel.querySelector('.overlay');
 
     var conversationId = null;
+    var history = [];
     try {
       conversationId = localStorage.getItem(STORAGE_KEY);
+      var rawHistory = localStorage.getItem(HISTORY_KEY);
+      if (rawHistory) {
+        var parsed = JSON.parse(rawHistory);
+        if (Array.isArray(parsed)) history = parsed;
+      }
     } catch (e) {
-      /* localStorage puede estar bloqueado (modo privado); la conversacion
-         simplemente no persiste entre recargas, no es un error fatal. */
+      /* localStorage puede estar bloqueado (modo privado) o el JSON
+         guardado puede estar corrupto -- la conversacion simplemente no
+         persiste entre recargas, no es un error fatal. */
+      history = [];
     }
 
-    function appendMessage(text, cls) {
+    function saveHistory() {
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+      } catch (e) {}
+    }
+
+    // `record=true` solo en los turnos reales de la conversacion (eco del
+    // usuario, respuesta del bot) -- el saludo/menu inicial y los mensajes
+    // de error/typing no se persisten, se recrean solos cuando no hay
+    // historial guardado (ver ensureGreeting).
+    function recordEntry(entry) {
+      history.push(entry);
+      if (history.length > HISTORY_LIMIT) history = history.slice(history.length - HISTORY_LIMIT);
+      saveHistory();
+    }
+
+    function appendMessage(text, cls, record) {
       var el = document.createElement('div');
       el.className = 'msg ' + cls;
       el.textContent = text;
       messagesEl.appendChild(el);
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      if (record) recordEntry({ type: 'msg', text: text, cls: cls });
       return el;
     }
 
@@ -269,20 +288,44 @@
     function ensureGreeting() {
       if (greeted) return;
       greeted = true;
-      appendMessage(GREETING_TEXT, 'bot');
-      renderMenu();
+      if (conversationId && history.length > 0) {
+        replayHistory();
+      } else {
+        appendMessage(GREETING_TEXT, 'bot');
+        renderMenu();
+      }
+    }
+
+    // Reconstruye la conversacion ya renderizada a partir de HISTORY_KEY --
+    // se usa en vez del saludo+menu cuando ya existe una conversacion (F5
+    // del navegador no debe borrarla, pedido explicito del usuario
+    // 2026-08-09, 2da vuelta). `record` se omite a proposito en cada
+    // appendMessage/renderProductsCarousel de aca para no re-grabar lo que
+    // ya esta guardado.
+    function replayHistory() {
+      history.forEach(function (entry) {
+        if (entry.type === 'msg') {
+          appendMessage(entry.text, entry.cls);
+        } else if (entry.type === 'products' && Array.isArray(entry.products)) {
+          messagesEl.appendChild(renderProductsCarousel(entry.products));
+        }
+      });
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     // ── Menu de opciones (estilo Farmatodo) ──────────────────────────────
-    // "Ver el estado de mi solicitud" y "Hablar con un farmaceutico" ya
-    // funcionan (ver handleMenuOption) pero quedan deshabilitados por
-    // pedido explicito del usuario 2026-07-29 para el lanzamiento inicial
-    // -- se muestran igual (para que el cliente sepa que vienen) con un
-    // tooltip "Disponible proximamente", sin quitar el codigo que ya
-    // funciona por si se habilitan mas adelante.
+    // "Hablar con un farmaceutico" ya funciona (ver handleMenuOption) pero
+    // queda deshabilitado por pedido explicito del usuario 2026-07-29 para
+    // el lanzamiento inicial -- se muestra igual (para que el cliente sepa
+    // que viene) con un tooltip "Disponible proximamente", sin quitar el
+    // codigo que ya funciona por si se habilita mas adelante.
+    //
+    // "Ver el estado de mi solicitud" se elimino 2026-08-09 (2da vuelta)
+    // junto con Pedidos/OrderRequest -- "Agregar producto" ahora agrega de
+    // verdad al carrito nativo de WooCommerce (ver addToWooCommerceCart),
+    // no hay una solicitud interna cuyo estado consultar.
     var MENU_OPTIONS = [
       { label: 'Buscar un producto', action: 'search' },
-      { label: 'Ver el estado de mi solicitud', action: 'status', disabled: true },
       { label: 'Hablar con un farmacéutico', action: 'pharmacist', disabled: true },
       { label: 'Otra pregunta', action: 'other' },
     ];
@@ -311,222 +354,171 @@
     }
 
     function handleMenuOption(opt) {
-      appendMessage(opt.label, 'user');
+      appendMessage(opt.label, 'user', true);
       if (opt.action === 'search') {
-        appendMessage('Cuéntame qué producto buscas (nombre, principio activo, o para qué lo necesitas) y reviso disponibilidad y precio.', 'bot');
+        appendMessage('Cuéntame qué producto buscas (nombre, principio activo, o para qué lo necesitas) y reviso disponibilidad y precio.', 'bot', true);
         inputEl.focus();
       } else if (opt.action === 'pharmacist') {
         appendMessage(
           'Nuestro personal farmacéutico te puede asesorar directamente en sucursal o por teléfono. ' +
             'Si mientras tanto quieres que revise disponibilidad, precio o alternativas de algún producto, dime cuál y con gusto te ayudo.',
           'bot',
+          true,
         );
       } else if (opt.action === 'other') {
-        appendMessage('Claro, cuéntame en qué te ayudo.', 'bot');
+        appendMessage('Claro, cuéntame en qué te ayudo.', 'bot', true);
         inputEl.focus();
-      } else if (opt.action === 'status') {
-        appendMessage('Indícame el número de referencia de tu solicitud (el que te dimos al enviarla, ej. AEA5DCBE).', 'bot');
-        renderReferenceForm();
       }
     }
 
-    function renderReferenceForm() {
-      var wrap = document.createElement('div');
-      wrap.className = 'ref-form';
-      var input = document.createElement('input');
-      input.type = 'text';
-      input.placeholder = 'Número de referencia';
-      input.maxLength = 12;
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = 'Consultar';
-      var submit = async function () {
-        var ref = input.value.trim();
-        if (!ref) return;
-        wrap.remove();
-        appendMessage(ref, 'user');
-        await checkOrderStatus(ref);
-      };
-      btn.addEventListener('click', submit);
-      input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') submit();
-      });
-      wrap.appendChild(input);
-      wrap.appendChild(btn);
-      messagesEl.appendChild(wrap);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-      input.focus();
-    }
-
-    var ORDER_STATUS_LABELS = { PENDIENTE: 'Pendiente de confirmación', CONFIRMADO: 'Confirmada', CANCELADO: 'Cancelada' };
-
-    async function checkOrderStatus(reference) {
-      try {
-        var res = await fetch(API_BASE_URL + '/chatbot/cart/status/' + encodeURIComponent(reference));
-        if (res.status === 404) {
-          appendMessage('No encontramos una solicitud con ese número de referencia -- verifica que esté completo.', 'error');
-          return;
-        }
-        if (!res.ok) {
-          appendMessage('No se pudo consultar el estado en este momento.', 'error');
-          return;
-        }
-        var body = await res.json();
-        var statusLabel = ORDER_STATUS_LABELS[body.status] || body.status;
-        var itemsText = body.items.map(function (i) { return i.quantity + 'x ' + i.name; }).join(', ');
-        appendMessage(
-          'Solicitud #' + body.reference + ': ' + statusLabel + '.\nProductos: ' + itemsText + '\nTotal: ' + formatPrice(body.total),
-          'bot',
-        );
-      } catch (e) {
-        appendMessage('No se pudo conectar para consultar el estado.', 'error');
-      }
-    }
-
-    // ── Carrito / solicitud de pedido ────────────────────────────────────
-    // 100% determinista contra /chatbot/cart/* -- el LLM nunca participa
-    // en cantidades/precios (ver ChatCartService en el backend).
-    var cartDetailsOpen = false;
-    var cartFormOpen = false;
-    var lastCart = { items: [], total: 0, notices: [] };
-
-    function renderCartBar() {
-      if (!conversationId || lastCart.items.length === 0) {
-        cartBarEl.classList.add('hidden');
-        cartBarEl.innerHTML = '';
+    // ── Carrito nativo de WooCommerce ────────────────────────────────────
+    // 2026-08-09 (2da vuelta): "Agregar producto" ya no crea una solicitud
+    // interna (OrderRequest, eliminado) -- agrega de verdad al carrito real
+    // de la tienda (el mismo /carrito/ de ecofarma.co), usando el mecanismo
+    // AJAX nativo que WooCommerce core ya carga en el tema
+    // (window.wc_add_to_cart_params). Verificado en vivo: un <a> creado
+    // dinamicamente con las clases/atributos estandar y un .click() SI
+    // dispara el flujo AJAX nativo (delegacion de eventos de WooCommerce no
+    // depende de que el elemento ya estuviera en la pagina), confirmado con
+    // .xoo-wsc-items-count subiendo y el producto apareciendo en /carrito/.
+    //
+    // Como esto corre en el navegador del cliente (no en nuestro backend),
+    // no aplica el bloqueo de Cloudflare que si afecta backend→WordPress en
+    // las otras integraciones -- es trafico normal del navegador al mismo
+    // sitio.
+    function addToWooCommerceCart(product, btn) {
+      if (!window.wc_add_to_cart_params) {
+        // Defensivo: no deberia pasar en ecofarma.co real (el tema siempre
+        // carga el script core de WooCommerce). Si pasa (ej. la consola de
+        // prueba interna, que vive en nuestro propio dominio y nunca tiene
+        // este objeto), cae al mismo camino que ya usaba "Ver en la tienda".
+        window.open(product.permalink, '_blank', 'noopener,noreferrer');
         return;
       }
-      cartBarEl.classList.remove('hidden');
 
-      var itemsHtml = lastCart.items
-        .map(function (item) {
-          return (
-            '<div class="cart-item-row">' +
-            '<span>' + escapeHtml(item.quantity) + 'x ' + escapeHtml(item.name) + '</span>' +
-            '<span><button class="cart-item-remove" data-sku="' + escapeHtml(item.sku) + '" title="Quitar">✕</button></span>' +
-            '</div>'
-          );
-        })
-        .join('');
+      var originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Agregando...';
+      var settled = false;
 
-      var formHtml = cartFormOpen
-        ? '<div class="cart-form">' +
-          '<input type="text" class="cf-name" placeholder="Tu nombre" maxlength="120" />' +
-          '<input type="tel" class="cf-phone" placeholder="Tu teléfono de contacto" maxlength="30" />' +
-          '<div class="cart-form-actions">' +
-          '<button type="button" class="confirm cf-confirm">Confirmar solicitud</button>' +
-          '<button type="button" class="cancel cf-cancel">Cancelar</button>' +
-          '</div></div>'
-        : '<button type="button" class="cart-submit-btn cf-open">Enviar solicitud de pedido</button>';
+      function onAdded() {
+        finish();
+      }
+      if (window.jQuery) {
+        window.jQuery(document.body).on('added_to_cart', onAdded);
+      }
 
-      cartBarEl.innerHTML =
-        '<div class="cart-summary cs-toggle">' +
-        '<span>🛒 ' + lastCart.items.length + ' producto' + (lastCart.items.length === 1 ? '' : 's') + '</span>' +
-        '<strong>' + formatPrice(lastCart.total) + '</strong>' +
-        '</div>' +
-        '<div class="cart-details' + (cartDetailsOpen ? ' open' : '') + '">' + itemsHtml + formHtml + '</div>';
+      function finish() {
+        if (settled) return;
+        settled = true;
+        if (window.jQuery) window.jQuery(document.body).off('added_to_cart', onAdded);
+        btn.disabled = false;
+        btn.textContent = 'Agregado al carrito ✓';
+        setTimeout(function () {
+          btn.textContent = originalText;
+        }, 2500);
+      }
 
-      cartBarEl.querySelector('.cs-toggle').addEventListener('click', function () {
-        cartDetailsOpen = !cartDetailsOpen;
-        renderCartBar();
+      var link = document.createElement('a');
+      link.href = '?add-to-cart=' + product.id;
+      link.className = 'add_to_cart_button ajax_add_to_cart';
+      link.setAttribute('data-product_id', String(product.id));
+      link.setAttribute('data-quantity', '1');
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(function () {
+        link.remove();
+      }, 100);
+
+      // Respaldo: si por lo que sea el evento added_to_cart nunca llega
+      // (ej. jQuery no cargo todavia), no dejamos el boton colgado.
+      setTimeout(finish, 1500);
+    }
+
+    // ── Vista de detalle ("Ver producto") ────────────────────────────────
+    // Overlay a pantalla completa dentro del panel -- pedido explicito del
+    // usuario 2026-08-09 (2da vuelta), inspirado en la referencia de
+    // Farmatodo: imagen grande, precio y un boton prominente de "Agregar
+    // producto" en vez del pequeno detalle inline de la version anterior.
+    function hideProductOverlay() {
+      overlayEl.classList.add('hidden');
+      overlayEl.innerHTML = '';
+    }
+
+    function showProductOverlay(product) {
+      overlayEl.innerHTML = '';
+
+      var header = document.createElement('div');
+      header.className = 'overlay-header';
+      var closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'overlay-close';
+      closeBtn.setAttribute('aria-label', 'Cerrar');
+      closeBtn.textContent = '✕';
+      closeBtn.addEventListener('click', hideProductOverlay);
+      header.appendChild(closeBtn);
+      overlayEl.appendChild(header);
+
+      var body = document.createElement('div');
+      body.className = 'overlay-body';
+
+      var img = document.createElement('img');
+      img.className = 'overlay-img';
+      img.src = product.imageUrl;
+      img.alt = '';
+      body.appendChild(img);
+
+      var name = document.createElement('div');
+      name.className = 'overlay-name';
+      name.textContent = product.name;
+      body.appendChild(name);
+
+      if (product.labName) {
+        var lab = document.createElement('div');
+        lab.className = 'overlay-lab';
+        lab.textContent = product.labName;
+        body.appendChild(lab);
+      }
+
+      var price = document.createElement('div');
+      price.className = 'overlay-price';
+      price.textContent = formatPrice(product.price);
+      body.appendChild(price);
+
+      if (product.requiresPrescription === true) {
+        var rx = document.createElement('div');
+        rx.className = 'overlay-rx';
+        rx.textContent = 'Este producto requiere fórmula médica.';
+        body.appendChild(rx);
+      } else if (product.requiresPrescription === null) {
+        var rxUnknown = document.createElement('div');
+        rxUnknown.className = 'overlay-rx';
+        rxUnknown.textContent = '¿Requiere receta? Confírmalo en sucursal.';
+        body.appendChild(rxUnknown);
+      }
+
+      var addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'overlay-add-btn';
+      addBtn.textContent = 'Agregar producto';
+      addBtn.addEventListener('click', function () {
+        addToWooCommerceCart(product, addBtn);
       });
-      cartBarEl.querySelectorAll('.cart-item-remove').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          addToCart(btn.getAttribute('data-sku'), 0);
-        });
-      });
-      var openBtn = cartBarEl.querySelector('.cf-open');
-      if (openBtn) {
-        openBtn.addEventListener('click', function () {
-          cartFormOpen = true;
-          renderCartBar();
-        });
-      }
-      var cancelBtn = cartBarEl.querySelector('.cf-cancel');
-      if (cancelBtn) {
-        cancelBtn.addEventListener('click', function () {
-          cartFormOpen = false;
-          renderCartBar();
-        });
-      }
-      var confirmBtn = cartBarEl.querySelector('.cf-confirm');
-      if (confirmBtn) {
-        confirmBtn.addEventListener('click', submitCart);
-      }
-    }
+      body.appendChild(addBtn);
 
-    async function refreshCart() {
-      if (!conversationId) return;
-      try {
-        var res = await fetch(API_BASE_URL + '/chatbot/cart?conversationId=' + encodeURIComponent(conversationId));
-        if (!res.ok) return;
-        lastCart = await res.json();
-        renderCartBar();
-      } catch (e) {
-        /* si falla, el carrito simplemente no se actualiza visualmente --
-           no es una accion que el usuario disparo, no hace falta alertarlo. */
+      if (product.permalink) {
+        var storeLink = document.createElement('a');
+        storeLink.className = 'overlay-store-link';
+        storeLink.href = product.permalink;
+        storeLink.target = '_blank';
+        storeLink.rel = 'noopener noreferrer';
+        storeLink.textContent = 'Ver en la tienda';
+        body.appendChild(storeLink);
       }
-    }
 
-    async function addToCart(sku, quantity, productName) {
-      if (!conversationId) return;
-      try {
-        var res = await fetch(API_BASE_URL + '/chatbot/cart/items', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId: conversationId, sku: sku, quantity: quantity }),
-        });
-        if (res.status === 429) {
-          appendMessage('Demasiadas acciones seguidas -- espera un momento e intenta de nuevo.', 'error');
-          return;
-        }
-        if (!res.ok) {
-          var errBody = await res.json().catch(function () { return {}; });
-          appendMessage(errBody.message || 'No se pudo actualizar el carrito.', 'error');
-          return;
-        }
-        lastCart = await res.json();
-        if (quantity > 0) {
-          appendMessage((productName ? 'Agregaste ' + quantity + 'x ' + productName : 'Producto agregado') + ' a tu solicitud.', 'bot');
-          lastCart.notices.forEach(function (n) {
-            appendMessage(n, 'notice');
-          });
-        }
-        renderCartBar();
-      } catch (e) {
-        appendMessage('No se pudo conectar con el asistente para actualizar el carrito.', 'error');
-      }
-    }
-
-    async function submitCart() {
-      var nameEl = cartBarEl.querySelector('.cf-name');
-      var phoneEl = cartBarEl.querySelector('.cf-phone');
-      var name = nameEl ? nameEl.value.trim() : '';
-      var phone = phoneEl ? phoneEl.value.trim() : '';
-      if (!name || !phone) {
-        appendMessage('Necesito tu nombre y un teléfono de contacto para enviar la solicitud.', 'error');
-        return;
-      }
-      try {
-        var res = await fetch(API_BASE_URL + '/chatbot/cart/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId: conversationId, customerName: name, customerPhone: phone }),
-        });
-        if (!res.ok) {
-          var errBody = await res.json().catch(function () { return {}; });
-          appendMessage((errBody.message && errBody.message[0]) || errBody.message || 'No se pudo enviar la solicitud.', 'error');
-          return;
-        }
-        var body = await res.json();
-        appendMessage('¡Listo! Tu solicitud #' + body.reference + ' quedó registrada. Nuestro personal te contactará para confirmar.', 'bot');
-        lastCart = { items: [], total: 0, notices: [] };
-        cartFormOpen = false;
-        cartDetailsOpen = false;
-        renderCartBar();
-      } catch (e) {
-        appendMessage('No se pudo enviar la solicitud. Intenta de nuevo en un momento.', 'error');
-      }
+      overlayEl.appendChild(body);
+      overlayEl.classList.remove('hidden');
     }
 
     // Carrusel horizontal SIEMPRE, sin importar cuantos resultados haya --
@@ -534,11 +526,10 @@
     // pedido explicito del usuario 2026-08-09 inspirado en la referencia
     // del chatbot "Sommer" de Farmatodo (misma logica, estilos de EcoFarma).
     //
-    // La tarjeta por defecto es SOLO imagen+nombre+precio+"Ver producto" --
-    // los detalles (receta, stock, agregar al carrito o link a la tienda)
-    // se revelan al hacer click, en vez de venir siempre expandidos. Pedido
-    // explicito del usuario 2026-08-09 (2da vuelta): la version anterior
-    // (todo expandido) dejaba las tarjetas demasiado alargadas.
+    // La tarjeta es SOLO imagen+nombre+precio+"Ver producto" -- el detalle
+    // completo (receta, boton de agregar al carrito real) vive en el
+    // overlay de showProductOverlay, ya no en un bloque inline dentro de
+    // la tarjeta (pedido explicito del usuario 2026-08-09, 2da vuelta).
     function renderProductsCarousel(products) {
       var wrap = document.createElement('div');
       wrap.className = 'products-carousel';
@@ -561,66 +552,15 @@
           (p.labName ? '<div class="product-card-lab">' + escapeHtml(p.labName) + '</div>' : '') +
           '<div class="product-card-price">' + formatPrice(p.price) + '</div>';
 
-        var detail = document.createElement('div');
-        detail.className = 'product-card-detail hidden';
-        var detailHtml = '';
-        if (p.requiresPrescription) detailHtml += '<div class="rx">Requiere receta</div>';
-        if (p.requiresPrescription === null) detailHtml += '<div class="rx">¿Requiere receta? Confirma en sucursal</div>';
-        // Stock fisico solo tiene sentido si se puede pedir por el chat
-        // (canOrder) -- si no, mostrar "Stock: 0" seria enganoso (puede
-        // estar disponible en linea sin cruce con el inventario fisico).
-        if (p.canOrder) detailHtml += '<div class="product-card-stock">Stock: ' + escapeHtml(p.stock) + '</div>';
-        detail.innerHTML = detailHtml;
-
-        if (p.canOrder && p.stock > 0) {
-          var qtyInput = document.createElement('input');
-          qtyInput.type = 'number';
-          qtyInput.className = 'qty-input';
-          qtyInput.min = '1';
-          qtyInput.max = String(p.stock);
-          qtyInput.value = '1';
-
-          var addBtn = document.createElement('button');
-          addBtn.type = 'button';
-          addBtn.className = 'add-btn';
-          addBtn.textContent = 'Agregar';
-          addBtn.addEventListener('click', function () {
-            var qty = parseInt(qtyInput.value, 10);
-            if (!qty || qty < 1) qty = 1;
-            addToCart(p.sku, qty, p.name);
-          });
-
-          var actionsWrap = document.createElement('div');
-          actionsWrap.className = 'row-actions';
-          actionsWrap.appendChild(qtyInput);
-          actionsWrap.appendChild(addBtn);
-          detail.appendChild(actionsWrap);
-        } else if (p.permalink) {
-          // Sin contraparte en el catalogo interno (o agotado): no se puede
-          // armar un pedido por este chat (el personal despacha de
-          // inventario fisico real, ver ChatCartService.addItem) -- se
-          // ofrece el link directo a la tienda en vez de "Agregar".
-          var storeLink = document.createElement('a');
-          storeLink.className = 'store-link';
-          storeLink.href = p.permalink;
-          storeLink.target = '_blank';
-          storeLink.rel = 'noopener noreferrer';
-          storeLink.textContent = 'Ver en la tienda';
-          detail.appendChild(storeLink);
-        }
-
         var viewBtn = document.createElement('button');
         viewBtn.type = 'button';
         viewBtn.className = 'view-btn';
         viewBtn.textContent = 'Ver producto';
         viewBtn.addEventListener('click', function () {
-          var isHidden = detail.classList.contains('hidden');
-          detail.classList.toggle('hidden');
-          viewBtn.textContent = isHidden ? 'Ocultar' : 'Ver producto';
+          showProductOverlay(p);
         });
 
         body.appendChild(viewBtn);
-        body.appendChild(detail);
         card.appendChild(body);
         wrap.appendChild(card);
       });
@@ -631,7 +571,7 @@
     async function sendMessage() {
       var text = inputEl.value.trim();
       if (!text) return;
-      appendMessage(text, 'user');
+      appendMessage(text, 'user', true);
       inputEl.value = '';
       setBusy(true);
       var typingEl = document.createElement('div');
@@ -658,17 +598,16 @@
         }
 
         var body = await res.json();
-        var isNewConversation = conversationId !== body.conversationId;
         conversationId = body.conversationId;
         try {
           localStorage.setItem(STORAGE_KEY, conversationId);
         } catch (e) {}
-        appendMessage(body.reply, 'bot');
+        appendMessage(body.reply, 'bot', true);
         if (Array.isArray(body.products) && body.products.length > 0) {
           messagesEl.appendChild(renderProductsCarousel(body.products));
           messagesEl.scrollTop = messagesEl.scrollHeight;
+          recordEntry({ type: 'products', products: body.products });
         }
-        if (isNewConversation) refreshCart();
       } catch (e) {
         typingEl.remove();
         appendMessage('No se pudo conectar con el asistente. Revisa tu conexión e intenta de nuevo.', 'error');
@@ -683,7 +622,6 @@
       panel.classList.toggle('hidden');
       if (willOpen) {
         ensureGreeting();
-        refreshCart();
         inputEl.focus();
       }
     });

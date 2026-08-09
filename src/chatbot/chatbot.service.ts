@@ -45,11 +45,19 @@ const CATEGORY_SEARCH_DISCLAIMER =
 /// es el enriquecimiento: si el SKU tambien existe ahi (activo, no oculto),
 /// se completa con stock fisico por sucursal, si requiere receta y
 /// alternativas por principio activo -- ninguno de esos tres datos existe en
-/// WooCommerce. Ver `canOrder`: la mayoria de WooCommerce no tiene
-/// contraparte en Distrimonaco, y el carrito del chat solo puede armar un
-/// pedido con lo que el personal puede despachar de inventario fisico real
-/// (ver ChatCartService.addItem).
+/// WooCommerce.
+///
+/// 2026-08-09 (2da vuelta): `id` (el id numerico real del producto en
+/// WooCommerce) se agrega para que el widget pueda agregarlo directo al
+/// carrito NATIVO de WooCommerce (ver public/widget/chatbot.js,
+/// addToWooCommerceCart) -- ya no existe un carrito propio del chat
+/// (ChatCartService/OrderRequest, eliminados). `canOrder` queda como dato
+/// informativo (si hay o no cruce con Distrimonaco, para stock fisico/
+/// receta/alternativas) pero YA NO decide si se puede comprar: con el
+/// carrito nativo, cualquier producto con `id` de WooCommerce se puede
+/// agregar, tenga o no contraparte en Distrimonaco.
 interface ProductFact {
+  id: number;
   sku: string;
   name: string;
   price: number | null;
@@ -74,6 +82,7 @@ interface ProductFact {
 }
 
 export interface ProductTableRow {
+  id: number;
   sku: string;
   name: string;
   labName: string | null;
@@ -82,9 +91,8 @@ export interface ProductTableRow {
   requiresPrescription: boolean | null;
   imageUrl: string;
   permalink: string;
-  /// false = no se puede agregar al carrito del chat (sin contraparte en
-  /// Distrimonaco) -- el widget debe ofrecer el link a `permalink` en vez de
-  /// los controles de cantidad/Agregar.
+  /// Informativo (hay o no cruce con Distrimonaco) -- ya NO decide si se
+  /// puede agregar al carrito, ver comentario de ProductFact.
   canOrder: boolean;
 }
 
@@ -254,6 +262,7 @@ export class ChatbotService {
       }
 
       return {
+        id: match.id,
         sku: match.sku,
         name: match.name,
         price: match.price,
@@ -283,13 +292,14 @@ export class ChatbotService {
 
   /// El precio siempre sale de WooCommerce (p.price, fuente unica -- ver
   /// comentario de ProductFact), nunca de Distrimonaco. `stock` es la
-  /// cantidad fisica total (Distrimonaco) que limita cuanto se puede pedir
-  /// por el chat -- 0 si no hay cruce, pero eso no importa para la UI
-  /// porque `canOrder` ya la desactiva por completo en ese caso.
+  /// cantidad fisica total (Distrimonaco) -- solo informativa (stock por
+  /// sucursal para retiro fisico/receta), no limita si se puede agregar al
+  /// carrito nativo de WooCommerce (eso solo depende de `id`).
   private buildProductsTable(products: ProductFact[]): ProductTableRow[] {
     return products.map((p) => {
       const totalStock = p.stockByBranch.reduce((sum, s) => sum + s.quantity, 0);
       return {
+        id: p.id,
         sku: p.sku,
         name: p.name,
         labName: p.labName,
