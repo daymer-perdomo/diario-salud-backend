@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -7,12 +8,18 @@ import basicAuth from 'express-basic-auth';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   // Render (y proveedores similares) ponen la app detras de un proxy --
   // sin esto, req.ip refleja al proxy, no al cliente real, y tanto el
   // rate limiting del chatbot (ChatRateLimiterService) como el ipHash
   // guardado en ChatSession quedarian mal.
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  // El limite por defecto de Express (~100kb) se queda corto para
+  // POST /integration/woocommerce/catalog: una tanda de 500 productos
+  // (nombres/permalinks/URLs de imagen reales de WooCommerce) supera eso
+  // facil -- confirmado en produccion, el plugin de WordPress recibia
+  // 413 "request entity too large" en cada intento (2026-08-08).
+  app.useBodyParser('json', { limit: '5mb' });
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );

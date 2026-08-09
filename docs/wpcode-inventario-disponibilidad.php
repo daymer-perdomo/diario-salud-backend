@@ -205,6 +205,10 @@ function ecofarma_disponibilidad_aplicar_pendientes() {
         }
 
         $resultados = array();
+        // Ids de los productos tocados en esta corrida, para refrescar su
+        // copia local al final -- ver nota "AUTO-SANAR" abajo.
+        $productos_tocados = array();
+
         foreach ($body['changes'] as $cambio) {
             if (empty($cambio['id']) || empty($cambio['productId']) || !isset($cambio['payload'])) {
                 continue; // forma inesperada -- se ignora sin ack, se reintenta cuando el backend la corrija
@@ -222,6 +226,28 @@ function ecofarma_disponibilidad_aplicar_pendientes() {
                 );
             } else {
                 $resultados[] = array('id' => $cambio['id'], 'ok' => true);
+                $productos_tocados[(int) $cambio['productId']] = true;
+            }
+        }
+
+        // AUTO-SANAR (2026-08-08): la tarea de "reportar" (evento 1) solo
+        // sube lo que esta agotado/oculto AHORA -- si un cambio de aca deja
+        // un producto DISPONIBLE de nuevo, esa tarea deja de mencionarlo, y
+        // la copia local se queda pegada mostrandolo agotado/oculto para
+        // siempre (bug real, reportado por el usuario: el boton del panel
+        // seguia ofreciendo "Marcar disponible" sobre un producto que ya
+        // estaba disponible). Por eso, cualquier producto tocado aca --
+        // disponible o no -- se resube de una vez con su estado real actual.
+        if (!empty($productos_tocados)) {
+            $items = array();
+            foreach (array_keys($productos_tocados) as $id) {
+                $product = wc_get_product($id);
+                if ($product) {
+                    $items[] = ecofarma_disponibilidad_payload_producto($product);
+                }
+            }
+            if (!empty($items)) {
+                ecofarma_disponibilidad_subir_tanda($items);
             }
         }
 
