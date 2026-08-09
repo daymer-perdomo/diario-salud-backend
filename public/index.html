@@ -1472,7 +1472,7 @@ function app() {
           text: body.reply,
           products:
             Array.isArray(body.products) && body.products.length > 1
-              ? body.products.map((p) => ({ ...p, _qty: 1 }))
+              ? body.products.map((p) => ({ ...p, _qty: 1, _detailOpen: false }))
               : null,
         });
         await this.refreshChatbotTestCart();

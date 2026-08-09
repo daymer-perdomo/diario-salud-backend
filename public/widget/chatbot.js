@@ -88,17 +88,31 @@
        este carrusel a ~2px en vez de dejarlo con su alto de contenido
        (bug real, confirmado inspeccionando getBoundingClientRect en
        produccion: alto 2px pese a fotos/texto reportando su alto real). */
-    .products-carousel { align-self: stretch; flex-shrink: 0; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+    /* align-items:flex-start -- sin esto, al expandir el detalle de UNA
+       tarjeta (click en "Ver producto"), el "stretch" por defecto de flex
+       estira TODAS las tarjetas del carrusel a la altura de la mas alta. */
+    .products-carousel { align-self: stretch; align-items: flex-start; flex-shrink: 0; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+    /* Ancho/alto pensados para que la tarjeta por defecto (sin el detalle
+       expandido) se vea compacta y proporcionada -- pedido explicito del
+       usuario 2026-08-09 (2da vuelta): la version anterior, con el precio,
+       stock y controles de cantidad siempre visibles, se veia "alargada". */
     .product-card {
-      flex: 0 0 132px; width: 132px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+      flex: 0 0 148px; width: 148px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
       overflow: hidden; display: flex; flex-direction: column; scroll-snap-align: start;
     }
-    .product-card .thumb { width: 100%; height: 96px; object-fit: cover; background: #f1f5f9; display: block; }
-    .product-card-body { padding: 10px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
-    .product-card-name { font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+    .product-card .thumb { width: 100%; height: 84px; object-fit: cover; background: #f1f5f9; display: block; }
+    .product-card-body { padding: 10px; display: flex; flex-direction: column; gap: 3px; }
+    .product-card-name { font-size: 12.5px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .product-card-lab { color: #64748b; font-size: 10.5px; }
     .product-card-price { font-size: 15px; font-weight: 700; color: ${BRAND_BLUE}; margin-top: 4px; }
     .product-card-stock { font-size: 10.5px; color: #64748b; }
+    .view-btn {
+      background: #fff; color: ${BRAND_BLUE}; border: 1px solid ${BRAND_BLUE}; border-radius: 20px;
+      padding: 5px 8px; font-size: 11px; cursor: pointer; margin-top: 6px; width: 100%;
+    }
+    .view-btn:hover { background: #eef1fd; }
+    .product-card-detail { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+    .product-card-detail.hidden { display: none; }
     .product-card .row-actions { flex-direction: row; align-items: center; margin-top: 6px; }
     .product-card .add-btn { flex: 1; padding: 6px 8px; border-radius: 20px; font-size: 12px; }
     .cart-bar { border-top: 1px solid #e2e8f0; background: #fff; }
@@ -519,6 +533,12 @@
     // reemplaza el diseno anterior (tarjetas para 1-2, tabla para 3+),
     // pedido explicito del usuario 2026-08-09 inspirado en la referencia
     // del chatbot "Sommer" de Farmatodo (misma logica, estilos de EcoFarma).
+    //
+    // La tarjeta por defecto es SOLO imagen+nombre+precio+"Ver producto" --
+    // los detalles (receta, stock, agregar al carrito o link a la tienda)
+    // se revelan al hacer click, en vez de venir siempre expandidos. Pedido
+    // explicito del usuario 2026-08-09 (2da vuelta): la version anterior
+    // (todo expandido) dejaba las tarjetas demasiado alargadas.
     function renderProductsCarousel(products) {
       var wrap = document.createElement('div');
       wrap.className = 'products-carousel';
@@ -539,12 +559,18 @@
         body.innerHTML =
           '<div class="product-card-name">' + escapeHtml(p.name) + '</div>' +
           (p.labName ? '<div class="product-card-lab">' + escapeHtml(p.labName) + '</div>' : '') +
-          (p.requiresPrescription ? '<div class="rx">Requiere receta</div>' : '') +
-          '<div class="product-card-price">' + formatPrice(p.price) + '</div>' +
-          // Stock fisico solo tiene sentido si se puede pedir por el chat
-          // (canOrder) -- si no, mostrar "Stock: 0" seria enganoso (puede
-          // estar disponible en linea sin cruce con el inventario fisico).
-          (p.canOrder ? '<div class="product-card-stock">Stock: ' + escapeHtml(p.stock) + '</div>' : '');
+          '<div class="product-card-price">' + formatPrice(p.price) + '</div>';
+
+        var detail = document.createElement('div');
+        detail.className = 'product-card-detail hidden';
+        var detailHtml = '';
+        if (p.requiresPrescription) detailHtml += '<div class="rx">Requiere receta</div>';
+        if (p.requiresPrescription === null) detailHtml += '<div class="rx">¿Requiere receta? Confirma en sucursal</div>';
+        // Stock fisico solo tiene sentido si se puede pedir por el chat
+        // (canOrder) -- si no, mostrar "Stock: 0" seria enganoso (puede
+        // estar disponible en linea sin cruce con el inventario fisico).
+        if (p.canOrder) detailHtml += '<div class="product-card-stock">Stock: ' + escapeHtml(p.stock) + '</div>';
+        detail.innerHTML = detailHtml;
 
         if (p.canOrder && p.stock > 0) {
           var qtyInput = document.createElement('input');
@@ -568,7 +594,7 @@
           actionsWrap.className = 'row-actions';
           actionsWrap.appendChild(qtyInput);
           actionsWrap.appendChild(addBtn);
-          body.appendChild(actionsWrap);
+          detail.appendChild(actionsWrap);
         } else if (p.permalink) {
           // Sin contraparte en el catalogo interno (o agotado): no se puede
           // armar un pedido por este chat (el personal despacha de
@@ -580,9 +606,21 @@
           storeLink.target = '_blank';
           storeLink.rel = 'noopener noreferrer';
           storeLink.textContent = 'Ver en la tienda';
-          body.appendChild(storeLink);
+          detail.appendChild(storeLink);
         }
 
+        var viewBtn = document.createElement('button');
+        viewBtn.type = 'button';
+        viewBtn.className = 'view-btn';
+        viewBtn.textContent = 'Ver producto';
+        viewBtn.addEventListener('click', function () {
+          var isHidden = detail.classList.contains('hidden');
+          detail.classList.toggle('hidden');
+          viewBtn.textContent = isHidden ? 'Ocultar' : 'Ver producto';
+        });
+
+        body.appendChild(viewBtn);
+        body.appendChild(detail);
         card.appendChild(body);
         wrap.appendChild(card);
       });
