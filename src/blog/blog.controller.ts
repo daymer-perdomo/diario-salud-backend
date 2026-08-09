@@ -15,13 +15,16 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
+import { unlinkSync } from 'fs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { BlogService } from './blog.service';
+import { ContentPackImportService } from './content-pack-import.service';
 import { blogImageMulterOptions } from './blog-image.storage';
+import { contentPackUploadMulterOptions } from './content-pack-upload.storage';
 import { QueryBlogPostsDto } from './dto/query-blog-posts.dto';
 import { UpdateBlogPostDto } from './dto/update-blog-post.dto';
 import { UpdateBlogSectionDto } from './dto/update-blog-section.dto';
@@ -41,13 +44,50 @@ import { CreateBlogReviewDto } from './dto/create-blog-review.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('blog')
 export class BlogController {
-  constructor(private readonly blogService: BlogService) {}
+  constructor(
+    private readonly blogService: BlogService,
+    private readonly contentPackImportService: ContentPackImportService,
+  ) {}
 
   @Post('posts')
   @ApiOperation({ summary: 'Crear un post de blog desde cero (nace sin publicar)' })
   @Roles(UserRole.ADMIN, UserRole.EDITOR)
   createPost(@Body() dto: CreateBlogPostDto) {
     return this.blogService.createPost(dto);
+  }
+
+  @Post('import')
+  @ApiOperation({
+    summary:
+      'Importar un paquete de contenido (.xlsx con hojas HUBS/BLOGS/ENCICLOPEDIA/TAGS, ej. ENTREGA_TABLAS_SEPARADAS) -- crea/actualiza posts sin publicar y sin aprobar (reviewDecision=PENDIENTE).',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        limit: { type: 'integer', description: 'Filas maximas por hoja (HUBS/BLOGS/ENCICLOPEDIA/TAGS). Default 10.' },
+      },
+    },
+  })
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  @UseInterceptors(FileInterceptor('file', contentPackUploadMulterOptions))
+  async importContentPack(@UploadedFile() file: Express.Multer.File | undefined, @Body('limit') limitRaw?: string) {
+    if (!file) throw new BadRequestException('Falta el archivo (.xlsx)');
+    const parsedLimit = limitRaw ? parseInt(limitRaw, 10) : 10;
+    const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 1000) : 10;
+    try {
+      return await this.contentPackImportService.importFromFile(file.path, limit);
+    } finally {
+      // El .xlsx subido es transitorio -- se borra siempre, haya
+      // terminado bien o el import haya fallado a mitad de camino.
+      try {
+        unlinkSync(file.path);
+      } catch {
+        /* noop */
+      }
+    }
   }
 
   @Get('posts')

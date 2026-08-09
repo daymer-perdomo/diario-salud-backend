@@ -591,6 +591,9 @@ function app() {
     newBlogBusy: false,
     newBlogSectionHeading: {},
     newBlogFaqQuestion: {},
+    contentPackImportFile: null,
+    contentPackImportLimit: 10,
+    contentPackImportBusy: false,
 
     // Inventario -- alimenta al chatbot publico de disponibilidad/precio
     // (ver plan kind-giggling-cerf.md). Mantenimiento manual entre
@@ -1097,6 +1100,32 @@ function app() {
           this.showToast(b?.message?.[0] || b?.message || 'No se pudo crear el post', 'error');
         }
       } finally { this.newBlogBusy = false; }
+    },
+
+    async importContentPack() {
+      if (!this.contentPackImportFile) return;
+      this.contentPackImportBusy = true;
+      try {
+        const formData = new FormData();
+        formData.append('file', this.contentPackImportFile);
+        formData.append('limit', String(this.contentPackImportLimit || 10));
+        const r = await this._fetch('/blog/import', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.jwtToken}` },
+          body: formData,
+        });
+        if (r.ok) {
+          const summary = await r.json();
+          this.showToast(`Importado: ${summary.posts} posts, ${summary.sections} secciones, ${summary.faqs} FAQs, ${summary.tags} tags`);
+          this.contentPackImportFile = null;
+          if (this.$refs.contentPackImportInput) this.$refs.contentPackImportInput.value = '';
+          await this.loadBlogHubs();
+          await this.loadBlogPosts();
+        } else {
+          const b = await r.json().catch(() => ({}));
+          this.showToast(b?.message?.[0] || b?.message || 'No se pudo importar el archivo', 'error');
+        }
+      } finally { this.contentPackImportBusy = false; }
     },
 
     // Igual que las FAQs/secciones existentes, se agregan una por una desde
