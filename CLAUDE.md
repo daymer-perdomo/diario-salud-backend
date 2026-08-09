@@ -49,6 +49,17 @@ qué hay activo en el panel: botón combinado, Lista Negra, creación manual de 
 paginación) y sección 8 como alternativa manual si el snippet alguna vez está caído. Snippet:
 `docs/wpcode-inventario-disponibilidad.php`.
 
+**2026-08-09, bug real encontrado por el usuario (el chatbot "siempre" mostraba productos
+agotados):** la tarea 3 de este snippet (subir el catálogo completo, ~42,335 productos,
+una vez al día) se cortaba a la mitad **todas las noches** porque el hosting tiene
+`max_execution_time=30s` y solo hidratar los productos ya tarda ~52s -- todo lo que caía
+después del punto de corte (ordenado por ID) nunca llegaba a la copia local que usa el
+chatbot. Fix de una línea (`set_time_limit(180)`), verificado en vivo disparando la subida
+completa manualmente. Ver sección 8.2.1 de
+[`docs/integracion-chatbot-wordpress.md`](docs/integracion-chatbot-wordpress.md) para el
+diagnóstico completo, útil si "el chatbot no encuentra productos que sí existen" vuelve a
+pasar.
+
 ## Chatbot en WordPress
 
 El chatbot de inventario (`src/chatbot/`, widget en `public/widget/chatbot.js`) se embebe en

@@ -339,12 +339,68 @@ sistemas de stock independientes, ver sección 3), el propio JS core de WooComme
 `window.location = product_url` -- el cliente sale del widget y aterriza en la página del
 producto (que sí muestra "AGOTADO" con claridad). Es el mismo comportamiento que tendría
 CUALQUIER botón "Añadir al carrito" nativo del sitio con ese producto, no algo específico de
-nuestro `<a>` dinámico. Al probar esto se encontró además que **el catálogo de WooCommerce
-tiene entradas duplicadas para el mismo nombre de producto** (una real con stock/precio
-correcto, otra obsoleta con precio placeholder `9999999`) -- el buscador del chatbot, al ser
-por similitud de texto, a veces encuentra la duplicada. Es un problema de calidad de datos
-del catálogo sincronizado, no de esta feature; queda anotado para una futura limpieza de
-`WoocommerceCatalogItem` (deduplicar por nombre o preferir el registro con precio real).
+nuestro `<a>` dinámico.
+
+### 8.2.1 "Siempre agotado": la sincronización del catálogo se cortaba a la mitad todas las noches
+
+Al probar lo de arriba, el usuario reportó que "Agregar producto" **siempre** terminaba en un
+producto agotado -- no era mala suerte. Investigación en producción, en orden:
+
+1. **Primer intento (insuficiente):** se agregó `stockStatus` a `orderBy` en
+   `WoocommerceCatalogService.searchByTerms` para priorizar en-stock. No cambió nada visible
+   -- porque para varias búsquedas comunes ("dolex", "loratadina", "acetaminofen") **ningún**
+   resultado en la copia local estaba en stock, sin importar el orden.
+2. **Segundo intento, pedido explícito del usuario ("no muestre producto que no tenga
+   stock"):** se cambió a filtrar directamente `stockStatus: { not: 'outofstock' }`. Esto
+   sí eliminó los agotados de los resultados -- pero como consecuencia, búsquedas comunes
+   empezaron a devolver **cero resultados** ("no encontré nada"), porque casi todo lo que
+   había en la copia local para esos términos estaba agotado.
+3. **Causa raíz real (confirmada en vivo contra WordPress, sin este cambio no se hubiera
+   encontrado):** el usuario mostró un producto real, en stock, verificado con una captura de
+   pantalla de la página del producto (CONDON PIEL SENSITIVO x 3 UND, $6.259, "Hay
+   existencias") que el chatbot no encontraba ni buscando por su SKU exacto
+   (`7703689031169`, id de WooCommerce `271995`). Se midió en vivo (`novamira/execute-php`):
+   - `max_execution_time` del hosting: **30 segundos**.
+   - Solo traer los ~42,335 IDs publicados (`wc_get_products(..., return: 'ids')`): 0.003s.
+   - **Hidratar cada producto completo** (`wc_get_product()`, lo que de verdad hace
+     `ecofarma_disponibilidad_subir_catalogo()` en la tarea 3) para los 42,335: **~52
+     segundos** -- ya el doble del límite, sin contar las llamadas de red que hace cada 500
+     productos para subirlos a este backend.
+   - La función recorre por ID ascendente (`orderby: 'ID'`) y sube en tandas de 500
+     (`ecofarma_disponibilidad_subir_tanda`) -- **se corta a la mitad todas las noches**
+     antes de terminar, y como no hay ningún mecanismo de reanudar desde donde quedó, todo
+     lo que cae después del punto de corte de esa noche simplemente nunca llega a la copia
+     local (`WoocommerceCatalogItem`). El producto de prueba caía justo en la página 176 de
+     424 (~41% del recorrido) -- exactamente en la zona que se pierde.
+   - `set_time_limit()` **sí está permitido** en este hosting (no está en
+     `disable_functions`, probado en vivo subiendo el límite de 30 a 60 dentro del mismo
+     request).
+
+**Fix aplicado en producción:** una línea, `set_time_limit(180)`, al inicio de
+`ecofarma_disponibilidad_subir_catalogo()` (post_id=338454, editado con `str_replace` sobre
+el `post_content` en vivo, no reemplazo completo -- mismo patrón que la sección 6.1 de
+`docs/integracion-inventario-wordpress.md` para no repetir el incidente de sobreescribir la
+API key). Validado con `php -l` en el servidor antes de guardar, cache de WPCode
+regenerada. **Verificado disparando la subida completa manualmente**: una llamada síncrona
+directa desde la herramienta de administración se cortaba por el propio timeout de esa
+herramienta (no de WordPress), así que se disparó de forma no bloqueante
+(`wp_schedule_single_event` + `spawn_cron()`, el mismo mecanismo que usa WP-Cron
+normalmente) -- **tras ~75 segundos** el producto de prueba ya aparecía en el chatbot con
+sus datos reales (precio $6.259, stock, `canOrder: true`), y búsquedas comunes que antes
+devolvían agotados o nada ("dolex", "loratadina", "condones") pasaron a mostrar variantes
+reales en stock.
+
+El filtro `stockStatus: { not: 'outofstock' }` del paso 2 **se mantiene** (sigue siendo lo
+que pidió el usuario: nunca mostrar un agotado) -- con la sincronización completa ahora sí
+llegando a los 42,335 productos cada noche, el filtro deja de vaciar los resultados porque
+ya hay suficientes productos genuinamente en stock en la copia local para que las búsquedas
+comunes encuentren algo.
+
+**Nota aparte, todavía sin resolver:** durante esta investigación se encontraron
+duplicados legítimos en el catálogo real de WooCommerce (ej. varias entradas
+"CONDON PIEL SENSITIVO..." de distintos proveedores, algunas agotadas desde hace meses,
+otras vigentes) -- eso es dato real de WooCommerce, no un problema de esta sincronización;
+el filtro de stock ya evita mostrar las agotadas.
 
 ### 8.3 Vista de detalle ("Ver producto")
 

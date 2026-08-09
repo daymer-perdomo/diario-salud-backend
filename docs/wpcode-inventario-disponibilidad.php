@@ -11,6 +11,21 @@
  * aca primero, se valida con `php -l`, y despues se copia a WPCode de produccion
  * (post_id=338454) regenerando el cache con wpcode()->cache->cache_all_loaded_snippets().
  *
+ * FIX 2026-08-09 (segunda vuelta): la subida completa del catalogo
+ * (ecofarma_disponibilidad_subir_catalogo, tarea 3) se cortaba a la mitad TODAS las
+ * noches -- el hosting tiene max_execution_time=30s, y solo HIDRATAR (wc_get_product) los
+ * ~42,335 productos publicados tarda ~52s medido en vivo, sin contar las llamadas de red
+ * por cada tanda de 500. Como recorre por ID ascendente, todo lo que caia despues del
+ * punto de corte (por ejemplo, ~el 41% en adelante) nunca llegaba a la copia local --
+ * confirmado con un producto real en stock (CONDON PIEL SENSITIVO x 3 UND, id 271995,
+ * SKU 7703689031169) que el usuario encontro en la tienda pero el chatbot nunca mostraba.
+ * Fix: set_time_limit(180) al inicio de la funcion -- probado en vivo que este hosting SI
+ * lo permite (no esta en disable_functions). Aplicado en produccion y verificado
+ * disparando la subida completa manualmente (via spawn_cron(), no bloqueante -- una
+ * llamada sincrona directa desde la herramienta de administracion se corta antes por el
+ * propio timeout de esa herramienta): tras ~75s el producto de prueba ya aparecia en el
+ * chatbot con sus datos reales (precio $6.259, stock, canOrder:true).
+ *
  * FIX 2026-08-09: se agrego 'price' al payload (ver ecofarma_disponibilidad_payload_producto)
  * porque el chatbot paso a usar WooCommerce como fuente PRIMARIA de precio -- aplicado en
  * produccion el mismo dia (wp_update_post + regeneracion de cache), confirmado con
@@ -322,6 +337,9 @@ add_action('ecofarma_evento_aplicar_pendientes', 'ecofarma_disponibilidad_aplica
 if (!function_exists('ecofarma_disponibilidad_subir_catalogo')) {
 function ecofarma_disponibilidad_subir_catalogo() {
     try {
+        // Ver comentario del header (FIX 2026-08-09, segunda vuelta) -- sin esto,
+        // el hosting mata el proceso a los 30s y la subida se corta a la mitad.
+        set_time_limit(180);
         if (!class_exists('WooCommerce') || !function_exists('wc_get_products')) {
             return;
         }
