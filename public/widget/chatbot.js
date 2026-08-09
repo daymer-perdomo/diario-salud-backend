@@ -80,6 +80,15 @@
     }
     .header img { height: 36px; width: 36px; object-fit: contain; border-radius: 50%; background: #fff; flex-shrink: 0; }
     .header small { display: block; font-weight: 400; opacity: .85; font-size: 11px; margin-top: 2px; }
+    /* Solo en movil -- pedido explicito del usuario 2026-08-09 (5ta vuelta):
+       con el panel a pantalla completa (media query de arriba) el FAB que
+       antes servia para cerrar queda tapado por el propio panel, sin
+       ninguna forma visible de salir del chat. En escritorio/tablet el
+       panel flotante no lo necesita -- FAB sigue funcionando como toggle. */
+    .header-close { display: none; margin-left: auto; background: none; border: none; color: #fff; font-size: 20px; line-height: 1; cursor: pointer; padding: 4px 6px; flex-shrink: 0; }
+    @media (max-width: 640px) {
+      .header-close { display: block; }
+    }
     .messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #f8fafc; }
     .msg { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
     .msg.user { align-self: flex-end; background: ${BRAND_BLUE}; color: #fff; border-bottom-right-radius: 3px; }
@@ -207,7 +216,8 @@
     panel.className = 'panel hidden';
     panel.innerHTML =
       '<div class="header"><img src="' + AVATAR_URL + '" alt="Asistente EcoFarma" />' +
-      '<div>¡Hola! ¿En qué puedo ayudarte?<small>Disponibilidad, precio y sucursales</small></div></div>' +
+      '<div>¡Hola! ¿En qué puedo ayudarte?<small>Disponibilidad, precio y sucursales</small></div>' +
+      '<button type="button" class="header-close" aria-label="Cerrar chat">✕</button></div>' +
       '<div class="messages"></div>' +
       '<div class="composer">' +
       '<button type="button" class="menu-toggle" title="Ver opciones" aria-label="Ver opciones">☰</button>' +
@@ -263,6 +273,7 @@
     var inputEl = panel.querySelector('input');
     var sendBtn = panel.querySelector('.send-btn');
     var menuToggleBtn = panel.querySelector('.menu-toggle');
+    var headerCloseBtn = panel.querySelector('.header-close');
     var overlayEl = panel.querySelector('.overlay');
 
     var conversationId = null;
@@ -367,9 +378,17 @@
       { label: 'Otra pregunta', action: 'other' },
     ];
 
+    // Solo puede haber un menu abierto a la vez -- pedido explicito del
+    // usuario 2026-08-09 (5ta vuelta): tocar el boton "☰" varias veces
+    // seguidas apilaba un menu nuevo encima del anterior en vez de no
+    // hacer nada. Si ya hay uno visible, este click se ignora.
+    var activeMenuEl = null;
+
     function renderMenu() {
+      if (activeMenuEl) return;
       var wrap = document.createElement('div');
       wrap.className = 'menu-block';
+      activeMenuEl = wrap;
       MENU_OPTIONS.forEach(function (opt) {
         var btn = document.createElement('button');
         btn.type = 'button';
@@ -381,6 +400,7 @@
         } else {
           btn.addEventListener('click', function () {
             wrap.remove();
+            if (activeMenuEl === wrap) activeMenuEl = null;
             handleMenuOption(opt);
           });
         }
@@ -614,6 +634,12 @@
     async function sendMessage() {
       var text = inputEl.value.trim();
       if (!text) return;
+      // Si el cliente ignora el menu abierto y escribe su pregunta
+      // directamente, liberamos el guard de activeMenuEl -- si no, el
+      // boton "☰" quedaria bloqueado para siempre (el menu viejo, ya
+      // inutil, sigue visible en el historial, pero deja de contar como
+      // "abierto").
+      activeMenuEl = null;
       appendMessage(text, 'user', true);
       inputEl.value = '';
       setBusy(true);
@@ -673,6 +699,9 @@
       if (e.key === 'Enter') sendMessage();
     });
     menuToggleBtn.addEventListener('click', renderMenu);
+    headerCloseBtn.addEventListener('click', function () {
+      panel.classList.add('hidden');
+    });
   }
 
   if (document.readyState === 'loading') {
