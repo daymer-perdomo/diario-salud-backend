@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "PromptKey" ADD VALUE 'CHAT_SEARCH_CORRECTION';

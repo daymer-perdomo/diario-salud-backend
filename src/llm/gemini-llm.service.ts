@@ -26,6 +26,11 @@ import {
 } from './schemas/extract-claims.schema';
 import { ChatIntentOutput, ChatIntentSchema, CHAT_INTENT_TOOL_JSON_SCHEMA } from './schemas/chat-intent.schema';
 import { ChatReplyOutput, ChatReplyOutputSchema, CHAT_REPLY_TOOL_JSON_SCHEMA } from './schemas/chat-reply.schema';
+import {
+  SearchCorrectionOutput,
+  SearchCorrectionSchema,
+  SEARCH_CORRECTION_TOOL_JSON_SCHEMA,
+} from './schemas/search-correction.schema';
 
 /// Unico proveedor de IA del pipeline (2026-07-16: Claude retirado por
 /// pedido explicito del usuario, cuenta de Anthropic sin credito --
@@ -161,6 +166,22 @@ export class GeminiLlmService implements LlmService {
       jsonSchema: CHAT_REPLY_TOOL_JSON_SCHEMA,
       zodSchema: ChatReplyOutputSchema,
       maxOutputTokens: 1024,
+    });
+  }
+
+  /// stage 'chat_' -- mismo dominio de presupuesto que el resto del
+  /// chatbot (ver LlmBudgetService.domainForStage). Solo se llama cuando
+  /// la busqueda literal ya fallo (ver ChatbotService.gatherFacts), asi
+  /// que el costo adicional queda acotado a los casos que de verdad lo
+  /// necesitan.
+  async suggestAlternativeSearchTerms(input: { query: string }): Promise<SearchCorrectionOutput> {
+    return this.callWithStructuredOutput({
+      systemPrompt: await this.prompts.getContent(PromptKey.CHAT_SEARCH_CORRECTION),
+      userPrompt: `Termino de busqueda que no encontro nada:\n${input.query}`,
+      stage: 'chat_search_correction',
+      jsonSchema: SEARCH_CORRECTION_TOOL_JSON_SCHEMA,
+      zodSchema: SearchCorrectionSchema,
+      maxOutputTokens: 256,
     });
   }
 

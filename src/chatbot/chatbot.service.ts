@@ -10,6 +10,15 @@ import { DEFAULT_PRODUCT_IMAGE_URL } from '../common/default-product-image.util'
 
 const HISTORY_TURNS = 6;
 
+/// Techo TECNICO, no una regla de negocio -- pedido explicito del usuario
+/// 2026-08-09: "quita el limite que tenemos de mostrar, muestra lo que
+/// encuentre" (antes: 3 resultados para busquedas por categoria, 5 para
+/// las demas). Este numero solo evita mandarle al LLM un JSON de cientos
+/// de productos (costo/latencia) y un carrusel inutilizable si un termino
+/// resulta demasiado generico -- en la practica, una busqueda real de
+/// farmacia rara vez encuentra mas de esto.
+const SEARCH_RESULTS_LIMIT = 30;
+
 const MEDICAL_OFF_TOPIC_REPLY =
   'No puedo dar consejo médico, diagnósticos ni recomendaciones de dosis -- eso lo debe resolver un profesional de la salud. ' +
   'Si me dices el nombre de un producto, con gusto te digo si tenemos disponibilidad, precio o en qué sucursal encontrarlo.';
@@ -164,20 +173,37 @@ export class ChatbotService {
 
   private async gatherFacts(intent: ChatIntentOutput) {
     const term = intent.productQuery?.trim();
-    if (!term) return { query: null, products: [], wasCategoryMatch: false };
+    if (!term) return { query: null, correctedFrom: null, products: [], wasCategoryMatch: false };
 
     // La expansion de sinonimos/categoria (ej. "hongos" -> "clotrimazol")
     // sigue viviendo en InventoryService -- es independiente de que tabla se
-    // busque. isCategoryQuery del LLM y wasCategoryMatch del diccionario son
-    // dos señales, cualquiera basta para capar a 3 (pedido explicito del
-    // usuario 2026-07-29).
+    // busque. isCategoryQuery del LLM y wasCategoryMatch del diccionario
+    // siguen usandose para el aviso de "no es una formulacion medica" (ver
+    // CATEGORY_SEARCH_DISCLAIMER en handleMessage) -- ya NO capan cuantos
+    // resultados se muestran (ver SEARCH_RESULTS_LIMIT).
     const relatedTerms = await this.inventory.resolveSynonyms(term);
     const wasCategoryMatch = relatedTerms.length > 0;
-    const take = intent.isCategoryQuery || wasCategoryMatch ? 3 : 5;
 
     // Busqueda PRIMARIA contra WooCommerce (~42,000 productos reales de la
     // tienda) -- ver comentario de ProductFact.
-    const matches = await this.woocommerce.searchByTerms([term, ...relatedTerms], take);
+    let matches = await this.woocommerce.searchByTerms([term, ...relatedTerms], SEARCH_RESULTS_LIMIT);
+
+    // Correccion por IA: SOLO cuando la busqueda literal (termino + sinonimos
+    // del diccionario) no encontro nada -- pedido explicito del usuario
+    // 2026-08-09 ("busque condones y no encontro, en realidad si tenemos").
+    // El LLM nunca decide que hay en stock, solo propone terminos
+    // alternativos para reintentar la MISMA busqueda deterministica --
+    // mismo principio de todo el pipeline. Si el termino corregido tampoco
+    // encuentra nada, se deja vacio (no se inventa un resultado).
+    let correctedFrom: string | null = null;
+    if (matches.length === 0) {
+      const suggestion = await this.llm.suggestAlternativeSearchTerms({ query: term });
+      if (suggestion.alternativeTerms.length > 0) {
+        matches = await this.woocommerce.searchByTerms(suggestion.alternativeTerms, SEARCH_RESULTS_LIMIT);
+        if (matches.length > 0) correctedFrom = term;
+      }
+    }
+
     const branchFilter = intent.branchQuery?.trim().toLowerCase();
 
     // Cruce por SKU exacto contra Distrimonaco, un lookup por match (a lo
@@ -252,7 +278,7 @@ export class ChatbotService {
       };
     });
 
-    return { query: term, branchQuery: intent.branchQuery, products: products_, wasCategoryMatch };
+    return { query: term, correctedFrom, branchQuery: intent.branchQuery, products: products_, wasCategoryMatch };
   }
 
   /// El precio siempre sale de WooCommerce (p.price, fuente unica -- ver

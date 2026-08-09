@@ -5,6 +5,7 @@ import { ScoringOutput } from './schemas/scoring.schema';
 import { ExtractClaimsOutput } from './schemas/extract-claims.schema';
 import { ChatIntentOutput } from './schemas/chat-intent.schema';
 import { ChatReplyOutput } from './schemas/chat-reply.schema';
+import { SearchCorrectionOutput } from './schemas/search-correction.schema';
 
 /// Interfaz intercambiable: el proveedor de IA (Claude, OpenAI, u otro)
 /// se decide en LlmModule, no aqui. Ningun modulo del pipeline debe
@@ -41,6 +42,14 @@ export interface LlmService {
   }): Promise<ChatIntentOutput>;
 
   composeChatReply(input: { message: string; facts: unknown }): Promise<ChatReplyOutput>;
+
+  /// Se llama SOLO cuando la busqueda literal (termino + sinonimos del
+  /// diccionario) no encontro nada -- pedido explicito del usuario
+  /// 2026-08-09: "busque condones y no encontro, en realidad si tenemos".
+  /// Sugiere terminos alternativos (sinonimos reales, generico/marca,
+  /// ortografia) para reintentar la busqueda determinista -- el LLM nunca
+  /// decide que hay en stock, solo propone QUE buscar de nuevo.
+  suggestAlternativeSearchTerms(input: { query: string }): Promise<SearchCorrectionOutput>;
 }
 
 export const LLM_SERVICE = 'LLM_SERVICE';
