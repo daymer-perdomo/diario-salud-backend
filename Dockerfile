@@ -6,6 +6,17 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# python3 + openpyxl: requeridos en runtime por
+# scripts/extract_content_pack.py y extract_blog_master.py (ver
+# src/blog/content-pack-import.core.ts), invocados via execFileSync desde
+# Node -- sin esto, POST /blog/import y los scripts de import fallan con
+# "python3: command not found" (500 generico de Nest, sin detalle). Se usa
+# el paquete apt python3-openpyxl (no pip) porque Debian bookworm bloquea
+# pip install directo sobre el Python del sistema (PEP 668,
+# "externally-managed-environment").
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-openpyxl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
